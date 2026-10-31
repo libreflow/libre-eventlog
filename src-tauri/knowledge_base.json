@@ -3,7 +3,10 @@
   "sources": {
     "System": [
       {
-        "match": { "provider": "Microsoft-Windows-Kernel-Power", "event_id": 41 },
+        "match": {
+          "provider": "Microsoft-Windows-Kernel-Power",
+          "event_id": 41
+        },
         "titre": "Arrêt brutal du système (Kernel-Power 41)",
         "cause": "L'ordinateur a redémarré sans arrêt propre : coupure d'alimentation, plantage matériel, écran bleu ou blocage complet.",
         "etapes": [
@@ -13,10 +16,31 @@
           "Vérifier que l'overclocking est désactivé et que les tensions sont stables.",
           "Consulter les minidumps BSOD dans C:\\Windows\\Minidump avec WinDbg ou BlueScreenView."
         ],
-        "categorie": "materiel"
+        "categorie": "materiel",
+        "commandes": [
+          {
+            "label": "État de l'alimentation et batterie",
+            "description": "Rapport détaillé sur la batterie et l'alimentation",
+            "commande": "powercfg /batteryreport /output %TEMP%\\battery-report.html; Get-Content %TEMP%\\battery-report.html -TotalCount 5",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          },
+          {
+            "label": "Rapport d'énergie du système",
+            "description": "Diagnostique la consommation et les veilles anormales",
+            "commande": "powercfg /energy /duration 10",
+            "type": "lecture",
+            "elevation": true,
+            "confirme": false
+          }
+        ]
       },
       {
-        "match": { "provider": "Microsoft-Windows-WHEA-Logger", "event_id": 18 },
+        "match": {
+          "provider": "Microsoft-Windows-WHEA-Logger",
+          "event_id": 18
+        },
         "titre": "Erreur matérielle WHEA (WHEA-Logger 18)",
         "cause": "Erreur matérielle non corrigeable ou corrigeable signalée par le firmware/le CPU (cache, mémoire, PCIe).",
         "etapes": [
@@ -25,10 +49,31 @@
           "Vérifier le refroidissement et les températures CPU.",
           "Si récurrent sur un CPU Intel récent, vérifier les microcodes/firmware appliqués par le BIOS."
         ],
-        "categorie": "materiel"
+        "categorie": "materiel",
+        "commandes": [
+          {
+            "label": "Dernières erreurs WHEA",
+            "description": "Historique des erreurs matérielles signalées par WHEA",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger'} -MaxEvents 20 | Select-Object TimeCreated, Id, LevelDisplayName, Message | Format-List",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          },
+          {
+            "label": "Informations système",
+            "description": "Modèle, BIOS et processeur de la machine",
+            "commande": "Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer, Model; Get-CimInstance Win32_BIOS | Select-Object SMBIOSBIOSVersion, ReleaseDate",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
       },
       {
-        "match": { "provider": "Microsoft-Windows-WHEA-Logger", "event_id": 19 },
+        "match": {
+          "provider": "Microsoft-Windows-WHEA-Logger",
+          "event_id": 19
+        },
         "titre": "Erreur matérielle corrigée (WHEA-Logger 19)",
         "cause": "Une erreur matérielle a été corrigée par le matériel (ECC, lien PCIe…), mais indique une défaillance naissante.",
         "etapes": [
@@ -36,10 +81,23 @@
           "Tester la RAM et vérifier les connexions PCIe/NVMe.",
           "Mettre à jour BIOS et pilotes chipset."
         ],
-        "categorie": "materiel"
+        "categorie": "materiel",
+        "commandes": [
+          {
+            "label": "Dernières erreurs WHEA corrigées",
+            "description": "Historique des erreurs WHEA (tous niveaux)",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Microsoft-Windows-WHEA-Logger'} -MaxEvents 20 | Select-Object TimeCreated, Id, LevelDisplayName | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
       },
       {
-        "match": { "provider": "disk", "event_id": 7 },
+        "match": {
+          "provider": "disk",
+          "event_id": 7
+        },
         "titre": "Blocage ou erreur du périphérique disque (disk 7)",
         "cause": "Le périphérique disque a un blocage ou une erreur de contrôleur : disque défaillant, câble SATA/NVMe ou contrôleur défaillant.",
         "etapes": [
@@ -48,10 +106,39 @@
           "Exécuter chkdsk /f /r sur le disque concerné.",
           "Si l'état S.M.A.R.T. est dégradé, remplacer le disque."
         ],
-        "categorie": "stockage"
+        "categorie": "stockage",
+        "commandes": [
+          {
+            "label": "Santé des disques physiques",
+            "description": "État S.M.A.R.T. et fiabilité de tous les disques",
+            "commande": "Get-PhysicalDisk | Select-Object FriendlyName, MediaType, HealthStatus, OperationalStatus | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          },
+          {
+            "label": "Compteurs de fiabilité",
+            "description": "Usure, température et erreurs des disques",
+            "commande": "Get-PhysicalDisk | Get-StorageReliabilityCounter | Select-Object DeviceId, Temperature, Wear, ReadErrorsTotal, WriteErrorsTotal | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          },
+          {
+            "label": "Vérifier le système de fichiers (C:)",
+            "description": "Analyse en ligne du volume C: sans interruption",
+            "commande": "Repair-Volume -DriveLetter C -Scan",
+            "type": "action",
+            "elevation": true,
+            "confirme": true
+          }
+        ]
       },
       {
-        "match": { "provider": "disk", "event_id": 153 },
+        "match": {
+          "provider": "disk",
+          "event_id": 153
+        },
         "titre": "Erreur d'E/S disque (disk 153)",
         "cause": "Le disque a mis trop de temps à répondre ou a échoué sur une opération d'E/S : souvent un disque défaillant ou un contrôleur saturé.",
         "etapes": [
@@ -59,10 +146,31 @@
           "Mettre à jour le firmware du SSD/NVMe et les pilotes storage (Intel RST, AMD chipset).",
           "Vérifier la gestion de l'alimentation des disques (lien AGRESSIF de l'APM en veille)."
         ],
-        "categorie": "stockage"
+        "categorie": "stockage",
+        "commandes": [
+          {
+            "label": "Événements disque récents",
+            "description": "Liste les derniers événements du canal System liés au stockage",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-2)} -MaxEvents 30 | Where-Object {$_.ProviderName -like '*disk*' -or $_.ProviderName -like '*stor*'} | Select-Object TimeCreated, ProviderName, Id, LevelDisplayName | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          },
+          {
+            "label": "Santé des disques physiques",
+            "description": "État S.M.A.R.T. de tous les disques",
+            "commande": "Get-PhysicalDisk | Select-Object FriendlyName, HealthStatus, OperationalStatus | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
       },
       {
-        "match": { "provider": "Ntfs", "event_id": 55 },
+        "match": {
+          "provider": "Ntfs",
+          "event_id": 55
+        },
         "titre": "Corruption du système de fichiers NTFS",
         "cause": "Le volume NTFS est corrompu : coupure électrique, disque défaillant ou arrêt brutal.",
         "etapes": [
@@ -73,7 +181,10 @@
         "categorie": "stockage"
       },
       {
-        "match": { "provider": "Service Control Manager", "event_id": 7000 },
+        "match": {
+          "provider": "Service Control Manager",
+          "event_id": 7000
+        },
         "titre": "Service impossible à démarrer (SCM 7000)",
         "cause": "Un service n'a pas pu démarrer : service désactivé, dépendance manquante, compte de service invalide ou fichier supprimé.",
         "etapes": [
@@ -85,7 +196,10 @@
         "categorie": "systeme"
       },
       {
-        "match": { "event_id": 7031, "provider": "Service Control Manager" },
+        "match": {
+          "event_id": 7031,
+          "provider": "Service Control Manager"
+        },
         "title": "Service terminé de manière inattendue",
         "cause": "Un service s'est arrêté de façon inattendue, souvent un crash du processus ou une fuite mémoire.",
         "etapes": [
@@ -97,7 +211,9 @@
         "categorie": "systeme"
       },
       {
-        "match": { "event_id": 7034 },
+        "match": {
+          "event_id": 7034
+        },
         "titre": "Service arrêté de manière inattendue (SCM 7034)",
         "cause": "Un service s'est arrêté anormalement (crash interne, dépendance défaillante).",
         "etapes": [
@@ -108,7 +224,10 @@
         "categorie": "systeme"
       },
       {
-        "match": { "provider": "Microsoft-Windows-WindowsUpdateClient", "event_id": 20 },
+        "match": {
+          "provider": "Microsoft-Windows-WindowsUpdateClient",
+          "event_id": 20
+        },
         "titre": "Échec d'installation d'une mise à jour",
         "cause": "Une mise à jour Windows n'a pas pu s'installer : espace disque insuffisant, corruption du composant Windows Update ou pilote incompatible.",
         "etapes": [
@@ -120,7 +239,10 @@
         "categorie": "systeme"
       },
       {
-        "match": { "provider": "EventLog", "event_id": 6008 },
+        "match": {
+          "provider": "EventLog",
+          "event_id": 6008
+        },
         "titre": "Arrêt inattendu du système (EventLog 6008)",
         "cause": "Le système a été arrêté de manière inattendue (coupure, blocage, BSOD non journalisé).",
         "etapes": [
@@ -131,7 +253,10 @@
         "categorie": "materiel"
       },
       {
-        "match": { "provider": "Microsoft-Windows-WER-SystemErrorReporter", "event_id": 1001 },
+        "match": {
+          "provider": "Microsoft-Windows-WER-SystemErrorReporter",
+          "event_id": 1001
+        },
         "titre": "Écran bleu (BugCheck 1001)",
         "cause": "Le système a subi un écran bleu : le code BugCheck (ex. 0x0000007E) identifie la cause probable.",
         "etapes": [
@@ -143,7 +268,10 @@
         "categorie": "bsod"
       },
       {
-        "match": { "provider": "BugCheck", "event_id": 1001 },
+        "match": {
+          "provider": "BugCheck",
+          "event_id": 1001
+        },
         "titre": "Redémarrage après écran bleu (BugCheck 1001)",
         "cause": "Le système a redémarré après un écran bleu ; le code BugCheck indique la cause probable.",
         "etapes": [
@@ -157,7 +285,10 @@
     ],
     "Application": [
       {
-        "match": { "provider": "Application Error", "event_id": 1000 },
+        "match": {
+          "provider": "Application Error",
+          "event_id": 1000
+        },
         "titre": "Plantage d'une application (Application Error 1000)",
         "cause": "Une application a cessé de fonctionner : bug du logiciel, pilote graphique, module DLL défaillant ou corruption mémoire.",
         "etapes": [
@@ -169,7 +300,10 @@
         "categorie": "application"
       },
       {
-        "match": { "provider": "Windows Error Reporting", "event_id": 1001 },
+        "match": {
+          "provider": "Windows Error Reporting",
+          "event_id": 1001
+        },
         "titre": "Rapport d'erreur Windows (WER 1001)",
         "cause": "Windows a consigné le rapport d'erreur d'une application plantée.",
         "etapes": [

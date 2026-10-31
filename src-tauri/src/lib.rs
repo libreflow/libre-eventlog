@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +21,8 @@ pub struct FixEntry {
     pub cause: String,
     pub etapes: Vec<String>,
     pub categorie: String,
+    #[serde(default)]
+    pub commandes: Vec<CommandeFix>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +44,31 @@ pub struct FixEntryMatch {
 pub struct Diagnostic {
     pub event: CriticalEvent,
     pub fix: Option<FixEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandeFix {
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    pub commande: String,
+    #[serde(default)]
+    pub r#type: String,
+    #[serde(default)]
+    pub elevation: bool,
+    #[serde(default)]
+    pub confirme: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+    pub duration_ms: u128,
+    pub elevated: bool,
 }
 
 fn severity_label(level: u8) -> String {
@@ -161,6 +189,107 @@ fn parse_wevtutil_json(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
     events
 }
 
+const PS_DENYLIST: &[&str] = &[
+    "format-volume",
+    "remove-partition",
+    "clear-disk",
+    "initialize-disk",
+    "remove-item",
+    "remove-windowsdriver",
+    "clear-content",
+    "remove-eventlog",
+    "limit-eventlog",
+    "clear-eventlog",
+    "reset-machinepassword",
+    "format",
+    "rd /s",
+    "del /",
+    "diskpart",
+    "cipher /w",
+    "sdelete",
+    "reg delete",
+];
+
+fn commande_autorisee(cmd: &str) -> Result<(), String> {
+    let lower = cmd.to_lowercase();
+    for mot in PS_DENYLIST {
+        if lower.contains(mot) {
+            return Err(format!(
+                "Commande refusée (opération potentiellement destructive détectée : {}).",
+                mot
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_elevated() -> bool {
+    Command::new("net")
+        .args(["session"])
+        .creation_flags_windows_no_window()
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+trait NoWindow {
+    fn creation_flags_windows_no_window(&mut self) -> &mut Self;
+}
+
+#[cfg(windows)]
+impl NoWindow for Command {
+    fn creation_flags_windows_no_window(&mut self) -> &mut Self {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        self.creation_flags(CREATE_NO_WINDOW);
+        self
+    }
+}
+
+#[cfg(not(windows))]
+impl NoWindow for Command {
+    fn creation_flags_windows_no_window(&mut self) -> &mut Self {
+        self
+    }
+}
+
+#[tauri::command]
+pub fn check_elevation() -> bool {
+    is_elevated()
+}
+
+#[tauri::command]
+pub fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
+    commande_autorisee(&commande)?;
+
+    let elevated = is_elevated();
+    let start = Instant::now();
+
+    // PowerShell : -NoProfile évite les scripts de profil, -NonInteractive
+    // empêche toute invite bloquante, et CREATE_NO_WINDOW garantit qu'aucune
+    // fenêtre console n'apparaît : tout est capturé et renvoyé à l'UI.
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &commande,
+        ])
+        .creation_flags_windows_no_window()
+        .output()
+        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+
+    Ok(CommandResult {
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: output.status.code(),
+        duration_ms: start.elapsed().as_millis(),
+        elevated,
+    })
+}
+
 #[tauri::command]
 pub fn get_diagnostic(event: CriticalEvent) -> Result<Diagnostic, String> {
     let fix = lookup_fix(&event.provider, event.event_id);
@@ -218,6 +347,15 @@ fn load_knowledge_base() -> Vec<FixEntryMatch> {
                             .and_then(|c| c.as_str())
                             .unwrap_or("inconnu")
                             .to_string(),
+                        commandes: entry
+                            .get("commandes")
+                            .and_then(|c| c.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|c| serde_json::from_value::<CommandeFix>(c.clone()).ok())
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
                     };
 
                     entries.push(FixEntryMatch {
@@ -251,7 +389,9 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             get_critical_events,
-            get_diagnostic
+            get_diagnostic,
+            run_diagnostic_command,
+            check_elevation
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Libre EventLog");

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { CriticalEvent, Diagnostic } from "./types";
+import type { CommandResult, CommandeFix, CriticalEvent, Diagnostic } from "./types";
 
 const CANAUX = ["Tous", "System", "Application"] as const;
 const SEVERITES = ["Toutes", "Critique", "Erreur"] as const;
@@ -15,6 +15,16 @@ const COLONNES: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "eventId", label: "ID", align: "right" },
   { key: "severity", label: "Sévérité" },
 ];
+
+interface TerminalEntry {
+  id: number;
+  label: string;
+  commande: string;
+  result: CommandResult | null;
+  error: string | null;
+  running: boolean;
+  time: string;
+}
 
 function formatDate(iso: string): string {
   if (!iso) return "—";
@@ -45,13 +55,31 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey>("timestamp");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [depuis, setDepuis] = useState<string>("24");
+  const [elevated, setElevated] = useState<boolean | null>(null);
+  const [terminal, setTerminal] = useState<TerminalEntry[]>([]);
+  const [terminalOuvert, setTerminalOuvert] = useState(false);
+  const [confirmCmd, setConfirmCmd] = useState<CommandeFix | null>(null);
+  const [runningCmd, setRunningCmd] = useState<string | null>(null);
+  const nextId = useRef(1);
+  const termRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    document.title =
-      selected
-        ? `${selected.provider} (${selected.eventId}) — Libre EventLog`
-        : "Libre EventLog";
+    invoke<boolean>("check_elevation")
+      .then(setElevated)
+      .catch(() => setElevated(false));
+  }, []);
+
+  useEffect(() => {
+    document.title = selected
+      ? `${selected.provider} (${selected.eventId}) — Libre EventLog`
+      : "Libre EventLog";
   }, [selected]);
+
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.scrollTop = termRef.current.scrollHeight;
+    }
+  }, [terminal]);
 
   async function charger() {
     setLoading(true);
@@ -80,6 +108,41 @@ export default function App() {
       setDiagnostic({ event: e, fix: null });
     } finally {
       setDiagLoading(false);
+    }
+  }
+
+  async function executerCommande(cmd: CommandeFix) {
+    const id = nextId.current++;
+    const time = new Date().toLocaleTimeString("fr-FR");
+    setTerminalOuvert(true);
+    setTerminal((t) => [
+      ...t,
+      { id, label: cmd.label, commande: cmd.commande, result: null, error: null, running: true, time },
+    ]);
+    setRunningCmd(cmd.commande);
+    try {
+      const res = await invoke<CommandResult>("run_diagnostic_command", {
+        commande: cmd.commande,
+      });
+      setTerminal((t) =>
+        t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
+      );
+    } catch (err) {
+      setTerminal((t) =>
+        t.map((e) =>
+          e.id === id ? { ...e, error: String(err), running: false } : e,
+        ),
+      );
+    } finally {
+      setRunningCmd(null);
+    }
+  }
+
+  function demanderExecution(cmd: CommandeFix) {
+    if (cmd.confirme) {
+      setConfirmCmd(cmd);
+    } else {
+      executerCommande(cmd);
     }
   }
 
@@ -133,13 +196,25 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="brand">
-          <span className="logo" aria-hidden="true">🩺</span>
+          <img src="/icon.svg" alt="" className="logo-img" aria-hidden="true" />
           <div>
             <h1>Libre EventLog</h1>
             <p>Événements critiques et erreurs Windows, avec correctifs suggérés</p>
           </div>
         </div>
         <div className="stats" role="status">
+          <span
+            className={`stat ${elevated === false ? "muted" : elevated ? "admin" : ""}`}
+            title={
+              elevated === null
+                ? "Vérification des droits…"
+                : elevated
+                  ? "Application lancée en administrateur : toutes les commandes sont disponibles"
+                  : "Application non élevée : les commandes marquées 🔐 nécessitent un relancement en administrateur"
+            }
+          >
+            {elevated === null ? "⏳ Droits…" : elevated ? "🔐 Administrateur" : "⛔ Mode limité"}
+          </span>
           <span className="stat critique">
             <strong>{nbCritiques}</strong> critique{nbCritiques > 1 ? "s" : ""}
           </span>
@@ -201,7 +276,7 @@ export default function App() {
         </div>
       )}
 
-      <div className="layout">
+      <div className={`layout ${terminalOuvert ? "avec-terminal" : ""}`}>
         <div className="table-wrap" role="region" aria-label="Liste des événements">
           <table className="events-table">
             <thead>
@@ -270,8 +345,8 @@ export default function App() {
         <aside className="detail" aria-live="polite">
           {!selected && (
             <div className="detail-empty">
-              <span className="detail-icon" aria-hidden="true">📋</span>
-              <p>Sélectionnez un événement pour voir le diagnostic.</p>
+              <img src="/icon.svg" alt="" className="detail-logo" aria-hidden="true" />
+              <p>Sélectionnez un événement pour voir le diagnostic et les correctifs exécutables.</p>
             </div>
           )}
           {selected && (
@@ -301,7 +376,7 @@ export default function App() {
                 {!diagLoading && diagnostic && !diagnostic.fix && (
                   <div className="fix">
                     <p>
-                      Aucun correctif connu pour cet événement. Consultez la base
+                      Aucun correctif connu pour cet événément. Consultez la base
                       Microsoft.
                     </p>
                     <a
@@ -336,6 +411,49 @@ export default function App() {
                         <span className="sr-only"> (ouvre un nouvel onglet)</span>
                       </a>
                     </div>
+
+                    {diagnostic.fix.commandes.length > 0 && (
+                      <div className="commandes">
+                        <h3>Correctifs exécutables</h3>
+                        {diagnostic.fix.commandes.map((cmd, i) => {
+                          const blocked = cmd.elevation && elevated === false;
+                          const running = runningCmd === cmd.commande;
+                          return (
+                            <div key={i} className={`cmd-card ${blocked ? "blocked" : ""}`}>
+                              <div className="cmd-head">
+                                <div>
+                                  <strong>{cmd.label}</strong>
+                                  {cmd.description && (
+                                    <p className="cmd-desc">{cmd.description}</p>
+                                  )}
+                                </div>
+                                <button
+                                  className="btn small"
+                                  onClick={() => demanderExecution(cmd)}
+                                  disabled={blocked || running}
+                                  title={
+                                    blocked
+                                      ? "Nécessite de relancer l'application en administrateur"
+                                      : cmd.confirme
+                                        ? "Une confirmation sera demandée"
+                                        : "Exécuter dans la fenêtre principale"
+                                  }
+                                >
+                                  {running ? "⏳…" : blocked ? "🔒" : "▶ Exécuter"}
+                                </button>
+                              </div>
+                              <code className="cmd-line">{cmd.commande}</code>
+                              {cmd.confirme && !blocked && (
+                                <span className="cmd-flag">⚠️ Confirmation requise</span>
+                              )}
+                              {cmd.elevation && !blocked && (
+                                <span className="cmd-flag">🔐 Droits administrateur</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -343,6 +461,104 @@ export default function App() {
           )}
         </aside>
       </div>
+
+      {terminalOuvert && (
+        <div className="terminal" role="region" aria-label="Terminal des commandes exécutées">
+          <div className="terminal-head">
+            <span className="terminal-title">⌨ Terminal — exécution PowerShell</span>
+            <div className="terminal-actions">
+              <button
+                className="btn small"
+                onClick={() => setTerminal([])}
+                disabled={terminal.length === 0}
+              >
+                Effacer
+              </button>
+              <button className="btn small" onClick={() => setTerminalOuvert(false)}>
+                ✕ Réduire
+              </button>
+            </div>
+          </div>
+          <div className="terminal-body" ref={termRef}>
+            {terminal.length === 0 && (
+              <p className="terminal-empty">
+                Aucune commande exécutée. Les résultats des correctifs s'afficheront ici,
+                sans ouvrir de fenêtre externe.
+              </p>
+            )}
+            {terminal.map((entry) => (
+              <div key={entry.id} className="term-entry">
+                <div className="term-cmd-line">
+                  <span className="term-time">{entry.time}</span>
+                  <span className="term-label">{entry.label}</span>
+                </div>
+                <code className="cmd-line">{entry.commande}</code>
+                {entry.running && <p className="term-status">⏳ Exécution en cours…</p>}
+                {entry.error && <pre className="term-err">{entry.error}</pre>}
+                {entry.result && (
+                  <>
+                    {entry.result.stdout && (
+                      <pre className="term-out">{entry.result.stdout}</pre>
+                    )}
+                    {entry.result.stderr && (
+                      <pre className="term-err">{entry.result.stderr}</pre>
+                    )}
+                    <p className="term-status">
+                      {entry.result.exitCode === 0 ? "✅" : "❌"} Terminé en{" "}
+                      {entry.result.durationMs} ms — code {entry.result.exitCode ?? "?"}
+                    </p>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!terminalOuvert && terminal.length > 0 && (
+        <button className="btn terminal-restore" onClick={() => setTerminalOuvert(true)}>
+          ⌨ Terminal ({terminal.length})
+        </button>
+      )}
+
+      {confirmCmd && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-title"
+          onClick={() => setConfirmCmd(null)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 id="confirm-title">⚠️ Confirmer l'exécution</h3>
+            <p>
+              Vous êtes sur le point d'exécuter la commande suivante sur ce système :
+            </p>
+            <code className="cmd-line">{confirmCmd.commande}</code>
+            {confirmCmd.elevation && elevated === false && (
+              <p className="modal-warn">
+                🔐 Cette commande nécessite des droits administrateur, mais l'application
+                n'est pas élevée. Elle échouera probablement.
+              </p>
+            )}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setConfirmCmd(null)}>
+                Annuler
+              </button>
+              <button
+                className="btn primary"
+                onClick={() => {
+                  const cmd = confirmCmd;
+                  setConfirmCmd(null);
+                  executerCommande(cmd);
+                }}
+              >
+                ▶ Exécuter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

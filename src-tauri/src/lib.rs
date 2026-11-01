@@ -79,8 +79,18 @@ fn severity_label(level: u8) -> String {
     }
 }
 
+// Les commandes Tauri synchrones s'exécutent sur le thread principal : les
+// commandes lourdes ci-dessous sont donc `async` et délèguent le travail
+// bloquant à `spawn_blocking` pour ne jamais geler l'interface.
+
 #[tauri::command]
-fn get_critical_events() -> Result<Vec<CriticalEvent>, String> {
+async fn get_critical_events() -> Result<Vec<CriticalEvent>, String> {
+    tauri::async_runtime::spawn_blocking(collecter_evenements)
+        .await
+        .map_err(|e| format!("La collecte des événements a échoué : {}", e))?
+}
+
+fn collecter_evenements() -> Result<Vec<CriticalEvent>, String> {
     let mut events: Vec<CriticalEvent> = Vec::new();
     for canal in ["System", "Application"] {
         events.extend(query_canal(canal)?);
@@ -395,7 +405,13 @@ fn attendre_avec_timeout(
 }
 
 #[tauri::command]
-fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
+async fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || executer_commande_ps(commande))
+        .await
+        .map_err(|e| format!("La commande a échoué : {}", e))?
+}
+
+fn executer_commande_ps(commande: String) -> Result<CommandResult, String> {
     const TIMEOUT_SECONDES: u64 = 120;
 
     commande_autorisee(&commande)?;
@@ -537,7 +553,13 @@ if ($dups) {
 "#;
 
 #[tauri::command]
-fn update_applications() -> Result<CommandResult, String> {
+async fn update_applications() -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(mise_a_jour_applications)
+        .await
+        .map_err(|e| format!("La mise à jour a échoué : {}", e))?
+}
+
+fn mise_a_jour_applications() -> Result<CommandResult, String> {
     let elevated = is_elevated();
     let start = Instant::now();
     let mut rapport = String::new();

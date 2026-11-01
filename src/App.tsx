@@ -208,7 +208,8 @@ function formatDate(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "medium" });
+  // Pas de secondes : inutiles pour un journal, elles ajoutent du bruit.
+  return d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 }
 
 function lienRecherche(e: CriticalEvent): string {
@@ -237,6 +238,38 @@ function libelleJour(dateCle: string): string {
     day: "numeric",
     month: "long",
   });
+}
+
+// Piège de focus dans une modale : Tab ne s'échappe pas vers l'arrière-plan.
+// Place le focus au premier élément interactif à l'ouverture.
+function usePiegeFocus(ref: React.RefObject<HTMLElement | null>, actif: boolean) {
+  useEffect(() => {
+    if (!actif || !ref.current) return;
+    const racine = ref.current;
+    const focusables = () =>
+      Array.from(
+        racine.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => !el.hasAttribute("disabled"));
+    focusables()[0]?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const els = focusables();
+      if (els.length === 0) return;
+      const premier = els[0];
+      const dernier = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === premier) {
+        e.preventDefault();
+        dernier.focus();
+      } else if (!e.shiftKey && document.activeElement === dernier) {
+        e.preventDefault();
+        premier.focus();
+      }
+    };
+    racine.addEventListener("keydown", onKeyDown);
+    return () => racine.removeEventListener("keydown", onKeyDown);
+  }, [ref, actif]);
 }
 
 // Anneau de score (SVG) : la progression s'anime au montage.
@@ -336,6 +369,9 @@ export default function App() {
   const [terminal, setTerminal] = useState<TerminalEntry[]>([]);
   const [terminalOuvert, setTerminalOuvert] = useState(false);
   const [confirmCmd, setConfirmCmd] = useState<CommandeFix | null>(null);
+  const majModalRef = useRef<HTMLDivElement>(null);
+  const confirmModalRef = useRef<HTMLDivElement>(null);
+  const auditModalRef = useRef<HTMLDivElement>(null);
   const [runningCmd, setRunningCmd] = useState<string | null>(null);
   const [majOuverte, setMajOuverte] = useState(false);
   const [majChargement, setMajChargement] = useState(false);
@@ -388,6 +424,11 @@ export default function App() {
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
+
+  // Piège de focus actif pour chaque modale ouverte.
+  usePiegeFocus(majModalRef, majOuverte);
+  usePiegeFocus(confirmModalRef, !!confirmCmd);
+  usePiegeFocus(auditModalRef, auditOuverte);
 
   useEffect(() => {
     invoke<boolean>("check_elevation")
@@ -892,65 +933,69 @@ export default function App() {
             <p>Diagnostic, maintenance et audit de santé Windows</p>
           </div>
         </div>
-        <div className="stats" role="status">
-          <span
-            className={`stat ${elevated === false ? "muted" : elevated ? "admin" : ""}`}
-            title={
-              elevated === null
-                ? "Vérification des droits…"
-                : elevated
-                  ? "Application lancée en administrateur : toutes les commandes sont disponibles"
-                  : "Application non élevée : les commandes marquées 🔐 nécessitent un relancement en administrateur"
-            }
-          >
-            {elevated === null ? (
-              <Loader2 className="icon spin" aria-hidden="true" />
-            ) : elevated ? (
-              <ShieldCheck className="icon ok" aria-hidden="true" />
-            ) : (
-              <ShieldOff className="icon muted" aria-hidden="true" />
-            )}
-            {elevated === null ? "Vérification…" : elevated ? "Administrateur" : "Mode limité"}
-          </span>
-          {elevated === false && (
-            <button
-              className="btn small"
-              onClick={relancerAdmin}
-              disabled={relanceEnCours}
-              title="Affiche l'invite UAC puis relance l'application avec les droits administrateur"
+        <div className="header-droite">
+          <div className="stats" role="status">
+            <span
+              className={`stat ${elevated === false ? "muted" : elevated ? "admin" : ""}`}
+              title={
+                elevated === null
+                  ? "Vérification des droits…"
+                  : elevated
+                    ? "Application lancée en administrateur : toutes les commandes sont disponibles"
+                    : "Application non élevée : les commandes marquées nécessitent un relancement en administrateur"
+              }
             >
-              {relanceEnCours ? (
+              {elevated === null ? (
                 <Loader2 className="icon spin" aria-hidden="true" />
+              ) : elevated ? (
+                <ShieldCheck className="icon ok" aria-hidden="true" />
               ) : (
-                <ShieldCheck className="icon" aria-hidden="true" />
+                <ShieldOff className="icon muted" aria-hidden="true" />
               )}
-              Relancer en administrateur
+              {elevated === null ? "Vérification…" : elevated ? "Administrateur" : "Mode limité"}
+            </span>
+            <span className="stat critique">
+              <strong>{nbCritiques}</strong> critique{nbCritiques > 1 ? "s" : ""}
+            </span>
+            <span className="stat erreur">
+              <strong>{nbErreurs}</strong> erreur{nbErreurs > 1 ? "s" : ""}
+            </span>
+            {nbAvertissements > 0 && (
+              <span className="stat avertissement">
+                <strong>{nbAvertissements}</strong> avertissement{nbAvertissements > 1 ? "s" : ""}
+              </span>
+            )}
+            {events.length > 0 && (
+              <span className="stat muted">
+                {filtres.length} / {events.length} affiché{filtres.length > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <div className="header-actions">
+            {elevated === false && (
+              <button
+                className="btn small"
+                onClick={relancerAdmin}
+                disabled={relanceEnCours}
+                title="Affiche l'invite UAC puis relance l'application avec les droits administrateur"
+              >
+                {relanceEnCours ? (
+                  <Loader2 className="icon spin" aria-hidden="true" />
+                ) : (
+                  <ShieldCheck className="icon" aria-hidden="true" />
+                )}
+                Relancer en admin
+              </button>
+            )}
+            <button
+              className="btn small btn-ghost"
+              onClick={() => setTheme((t) => (t === "sombre" ? "clair" : "sombre"))}
+              title="Basculer le thème clair/sombre"
+              aria-label="Basculer le thème"
+            >
+              {theme === "sombre" ? <Sun className="icon" aria-hidden="true" /> : <Moon className="icon" aria-hidden="true" />}
             </button>
-          )}
-          <button
-            className="btn small btn-ghost"
-            onClick={() => setTheme((t) => (t === "sombre" ? "clair" : "sombre"))}
-            title="Basculer le thème clair/sombre"
-            aria-label="Basculer le thème"
-          >
-            {theme === "sombre" ? <Sun className="icon" aria-hidden="true" /> : <Moon className="icon" aria-hidden="true" />}
-          </button>
-          <span className="stat critique">
-            <strong>{nbCritiques}</strong> critique{nbCritiques > 1 ? "s" : ""}
-          </span>
-          <span className="stat erreur">
-            <strong>{nbErreurs}</strong> erreur{nbErreurs > 1 ? "s" : ""}
-          </span>
-          {nbAvertissements > 0 && (
-            <span className="stat avertissement">
-              <strong>{nbAvertissements}</strong> avertissement{nbAvertissements > 1 ? "s" : ""}
-            </span>
-          )}
-          {events.length > 0 && (
-            <span className="stat muted">
-              {filtres.length} / {events.length} affiché{filtres.length > 1 ? "s" : ""}
-            </span>
-          )}
+          </div>
         </div>
       </header>
 
@@ -1193,24 +1238,28 @@ export default function App() {
           )}
           {selected && (
             <>
-              <h2>
-                {selected.provider} <span className="mono">— {selected.eventId}</span>
-              </h2>
-              <p className="meta">
-                {formatDate(selected.timestamp)} · {selected.canal} ·{" "}
-                <span className={`badge ${severityClass(selected)}`}>{selected.severity}</span>
-              </p>
-              {(selected.computer || selected.processId || selected.recordId) && (
-                <p className="meta muted">
-                  {selected.computer && <span>Machine : {selected.computer}</span>}
+              <div className={`detail-tete ${severityClass(selected)}`}>
+                <div className="detail-tete-titre">
+                  <h2>
+                    {selected.provider} <span className="mono">— {selected.eventId}</span>
+                  </h2>
+                  <span className={`badge ${severityClass(selected)}`}>
+                    <span className="badge-point" aria-hidden="true" />
+                    {selected.severity}
+                  </span>
+                </div>
+                <div className="detail-meta">
+                  <span className="chip mono">{formatDate(selected.timestamp)}</span>
+                  <span className="chip">{selected.canal}</span>
+                  {selected.computer && <span className="chip">{selected.computer}</span>}
                   {selected.processId != null && (
-                    <span> · PID : <span className="mono">{selected.processId}</span></span>
+                    <span className="chip mono">PID {selected.processId}</span>
                   )}
                   {selected.recordId != null && selected.recordId > 0 && (
-                    <span> · Enregistrement : <span className="mono">#{selected.recordId}</span></span>
+                    <span className="chip mono">#{selected.recordId}</span>
                   )}
-                </p>
-              )}
+                </div>
+              </div>
 
               <div className="section">
                 <h3>Message brut</h3>
@@ -1378,7 +1427,10 @@ export default function App() {
             {terminal.map((entry) => {
               const res = entry.result;
               return (
-              <div key={entry.id} className="term-entry">
+              <div
+                key={entry.id}
+                className={`term-entry ${entry.running ? "running" : res ? (res.exitCode === 0 ? "term-ok" : "term-ko") : ""}`}
+              >
                 <div className="term-cmd-line">
                   <span className="term-time">{entry.time}</span>
                   <span className="term-label">{entry.label}</span>
@@ -1436,7 +1488,7 @@ export default function App() {
           aria-labelledby="audit-title"
           onClick={() => !auditChargement && setAuditOuverte(false)}
         >
-          <div className="modal modal-maj" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-maj" ref={auditModalRef} onClick={(e) => e.stopPropagation()}>
             <h3 id="audit-title">
               <HeartPulse className="icon" aria-hidden="true" /> Audit de santé
             </h3>
@@ -1561,7 +1613,7 @@ export default function App() {
           aria-labelledby="maj-title"
           onClick={() => !majChargement && setMajOuverte(false)}
         >
-          <div className="modal modal-maj" onClick={(e) => e.stopPropagation()}>
+          <div className="modal modal-maj" ref={majModalRef} onClick={(e) => e.stopPropagation()}>
             <h3 id="maj-title"><Wrench className="icon" aria-hidden="true" /> Maintenance</h3>
 
             <div className="maj-onglets" role="tablist" aria-label="Sections de maintenance">
@@ -1886,7 +1938,7 @@ export default function App() {
           aria-labelledby="confirm-title"
           onClick={() => setConfirmCmd(null)}
         >
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" ref={confirmModalRef} onClick={(e) => e.stopPropagation()}>
             <h3 id="confirm-title"><AlertTriangle className="icon warn" aria-hidden="true" /> Confirmer l'exécution</h3>
             <p>
               Vous êtes sur le point d'exécuter la commande suivante sur ce système :

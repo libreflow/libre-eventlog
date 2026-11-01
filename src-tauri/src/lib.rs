@@ -346,7 +346,7 @@ mod tests {
     // production et vérifie que le parsing aboutit.
     #[test]
     fn wevtutil_reel_system() {
-        let events = query_canal("System", 50, false).expect("la requête wevtutil doit réussir");
+        let events = query_canal("System", 50, false, None).expect("la requête wevtutil doit réussir");
         for e in &events {
             assert_eq!(e.canal, "System");
             assert!(
@@ -374,7 +374,7 @@ mod tests {
             "Microsoft-Windows-WHEA-Logger/Operational",
             "Microsoft-Windows-Diagnostics-Performance/Operational",
         ] {
-            let resultat = query_canal(canal, 20, true);
+            let resultat = query_canal(canal, 20, true, None);
             assert!(
                 resultat.is_ok() || resultat.unwrap_err().contains("inaccessible"),
                 "canal {canal} : erreur inattendue"

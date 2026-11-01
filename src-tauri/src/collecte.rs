@@ -12,11 +12,13 @@ use crate::types::*;
 pub async fn get_critical_events(
     limit: Option<u32>,
     inclure_avertissements: Option<bool>,
+    depuis_ms: Option<u64>,
 ) -> Result<CollecteResult, String> {
     let res = tauri::async_runtime::spawn_blocking(move || {
         collecter_evenements(
             limit.unwrap_or(50).min(2000),
             inclure_avertissements.unwrap_or(false),
+            depuis_ms,
         )
     })
     .await
@@ -24,7 +26,7 @@ pub async fn get_critical_events(
     Ok(res)
 }
 
-pub fn collecter_evenements(limit: u32, avert: bool) -> CollecteResult {
+pub fn collecter_evenements(limit: u32, avert: bool, depuis_ms: Option<u64>) -> CollecteResult {
     let elevated = is_elevated();
     let mut canaux: Vec<&str> = vec![
         "System",
@@ -49,7 +51,7 @@ pub fn collecter_evenements(limit: u32, avert: bool) -> CollecteResult {
         );
     }
     for canal in canaux {
-        match query_canal(canal, limit, avert) {
+        match query_canal(canal, limit, avert, depuis_ms) {
             Ok(mut ev) => resultat.events.append(&mut ev),
             Err(e) => resultat.avertissements.push(e),
         }
@@ -86,18 +88,31 @@ pub fn decoder_console(bytes: &[u8]) -> String {
         .collect()
 }
 
-pub fn query_canal(canal: &str, limit: u32, avert: bool) -> Result<Vec<CriticalEvent>, String> {
+pub fn query_canal(
+    canal: &str,
+    limit: u32,
+    avert: bool,
+    depuis_ms: Option<u64>,
+) -> Result<Vec<CriticalEvent>, String> {
     // wevtutil ne supporte que les formats XML, Text et RenderedXml
     // (pas de JSON) : la sortie XML est parsée par parse_wevtutil_xml.
     // Le canal Security a des niveaux atypiques (les échecs d'audit sont de
     // niveau 0) : on y inclut explicitement les échecs de connexion (4625).
-    let query = if canal == "Security" {
-        "*[System[(Level=1 or Level=2 or EventID=4625)]]"
+    // `depuis_ms` filtre COTE WEVTUTIL (timediff) : avec une limite par
+    // canal, un filtrage post-hoc côté frontend ratait des événements
+    // récents noyés sous des plus anciens.
+    let niveaux = if canal == "Security" {
+        "(Level=1 or Level=2 or EventID=4625)"
     } else if avert {
-        "*[System[(Level=1 or Level=2 or Level=3)]]"
+        "(Level=1 or Level=2 or Level=3)"
     } else {
-        "*[System[(Level=1 or Level=2)]]"
+        "(Level=1 or Level=2)"
     };
+    let filtre = match depuis_ms {
+        Some(ms) => format!("*[System[{niveaux} and timediff(@SystemTime) <= {ms}]]"),
+        None => format!("*[System[{niveaux}]]"),
+    };
+    let query = &filtre;
     let output = Command::new("wevtutil")
         .args([
             "qe",

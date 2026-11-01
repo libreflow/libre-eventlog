@@ -34,7 +34,7 @@ export function useCollecte() {
   // Toujours à jour pour les raccourcis clavier et l'auto-refresh.
   const chargerRef = useRef<() => void>(() => {});
 
-  async function charger(overLimite?: string, overAvert?: boolean) {
+  async function charger(overLimite?: string, overAvert?: boolean, overDepuis?: string) {
     // Séquence : deux collectes peuvent se chevaucher (auto-refresh + clic,
     // ou changement rapide de filtre) ; seule la plus récente doit
     // s'appliquer, sinon un résultat ancien écrase le nouveau.
@@ -42,9 +42,15 @@ export function useCollecte() {
     setLoading(true);
     setError(null);
     try {
+      // Le filtre de période est appliqué CÔTÉ WEVTUTIL (XPath timediff) :
+      // avec une limite par canal, un filtrage frontend post-hoc ratait
+      // des événements récents noyés sous des plus anciens.
+      const periode = overDepuis ?? depuis;
+      const depuisMs = periode === "0" ? null : Number(periode) * 3_600_000;
       const result = await invoke<CollecteResult>("get_critical_events", {
         limit: Number(overLimite ?? limite),
         inclureAvertissements: overAvert ?? inclureAvert,
+        depuisMs,
       });
       if (collecteSeq.current !== seq) return;
       setEvents(result.events);
@@ -123,20 +129,9 @@ export function useCollecte() {
 
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase();
-    const now = Date.now();
-    const fenetres: Record<string, number> = {
-      "1": 3600_000,
-      "24": 24 * 3600_000,
-      "168": 7 * 24 * 3600_000,
-    };
-    const fenetre = fenetres[depuis];
     const liste = events.filter((e) => {
       if (canal !== "Tous" && e.canal !== canal) return false;
       if (severite !== "Toutes" && e.severity !== severite) return false;
-      if (fenetre) {
-        const t = new Date(e.timestamp).getTime();
-        if (!Number.isNaN(t) && now - t > fenetre) return false;
-      }
       if (
         q &&
         !e.provider.toLowerCase().includes(q) &&
@@ -153,7 +148,7 @@ export function useCollecte() {
       if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
       return String(va).localeCompare(String(vb), "fr") * dir;
     });
-  }, [events, canal, severite, recherche, sortKey, sortDir, depuis]);
+  }, [events, canal, severite, recherche, sortKey, sortDir]);
 
   function trier(key: SortKey) {
     if (sortKey === key) {

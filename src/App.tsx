@@ -522,7 +522,16 @@ export default function App() {
             <option key={s}>{s}</option>
           ))}
         </select>
-        <select value={depuis} onChange={(e) => setDepuis(e.target.value)} aria-label="Filtrer par période">
+        <select
+          value={depuis}
+          onChange={(e) => {
+            setDepuis(e.target.value);
+            // Le filtre de période est appliqué par wevtutil : changer la
+            // période doit relancer la collecte, pas seulement re-filtrer.
+            charger(undefined, undefined, e.target.value);
+          }}
+          aria-label="Filtrer par période"
+        >
           <option value="1">Dernière heure</option>
           <option value="24">Dernières 24 h</option>
           <option value="168">7 derniers jours</option>

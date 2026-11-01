@@ -41,10 +41,20 @@ import type {
   WinUpdate,
   WingetPackage,
 } from "./types";
-
-// Canaux dérivés des événements collectés (System, Application, Security,
-// WHEA-Logger, Diagnostics-Performance…).
-const SEVERITES = ["Toutes", "Critique", "Erreur", "Avertissement", "Info"] as const;
+import { Anneau } from "./components/Anneau";
+import { LienExterne } from "./components/LienExterne";
+import { usePiegeFocus } from "./hooks/usePiegeFocus";
+import {
+  SEVERITES,
+  cleJourLocal,
+  formatDate,
+  lienRecherche,
+  libelleJour,
+  severityClass,
+} from "./lib/evenements";
+import { CODES_PROBLEME, fabricantTrouve } from "./lib/materiel";
+import { copierTexte } from "./lib/pressepapiers";
+import { clePlanAction, rapportMarkdown } from "./lib/rapport";
 
 // Maintenance intégrée : sélection des applications à mettre à jour via
 // winget, purge des installateurs résiduels et détection des anciennes
@@ -159,256 +169,6 @@ interface TerminalEntry {
   error: string | null;
   running: boolean;
   time: string;
-}
-
-// Liens officiels des principaux fabricants (support + pilotes/BIOS).
-// Il n'existe pas d'API universelle de mise à jour BIOS : le support du
-// fabricant reste le canal officiel.
-const LIENS_FABRICANTS: { motif: string; nom: string; url: string; outil?: string }[] = [
-  { motif: "dell", nom: "Support Dell", url: "https://www.dell.com/support", outil: "Dell Command Update (winget : Dell.CommandUpdate)" },
-  { motif: "hewlett", nom: "Support HP", url: "https://support.hp.com", outil: "HP Support Assistant (winget : HP.SupportAssistant)" },
-  { motif: "hp ", nom: "Support HP", url: "https://support.hp.com", outil: "HP Support Assistant (winget : HP.SupportAssistant)" },
-  { motif: "lenovo", nom: "Support Lenovo", url: "https://pcsupport.lenovo.com", outil: "Lenovo System Update (winget : Lenovo.SystemUpdate)" },
-  { motif: "asus", nom: "Support ASUS", url: "https://www.asus.com/support/", outil: "MyASUS" },
-  { motif: "msi", nom: "Support MSI", url: "https://www.msi.com/support", outil: "MSI Center" },
-  { motif: "micro-star", nom: "Support MSI", url: "https://www.msi.com/support", outil: "MSI Center" },
-  { motif: "gigabyte", nom: "Support Gigabyte", url: "https://www.gigabyte.com/support", outil: "Gigabyte Control Center" },
-  { motif: "asrock", nom: "Support ASRock", url: "https://www.asrock.com/support/" },
-  { motif: "acer", nom: "Support Acer", url: "https://www.acer.com/support/", outil: "Care Center" },
-  { motif: "predator", nom: "Support Acer Predator", url: "https://www.acer.com/support/" },
-  { motif: "samsung", nom: "Support Samsung", url: "https://www.samsung.com/support/" },
-  { motif: "microsoft", nom: "Support Microsoft", url: "https://support.microsoft.com" },
-  { motif: "toshiba", nom: "Support Dynabook/Toshiba", url: "https://support.dynabook.com" },
-  { motif: "dynabook", nom: "Support Dynabook/Toshiba", url: "https://support.dynabook.com" },
-];
-
-function fabricantTrouve(manufacturer: string) {
-  const m = manufacturer.toLowerCase();
-  return LIENS_FABRICANTS.find((f) => m.includes(f.motif));
-}
-
-// Signification des codes de problème Gestionnaire de périphériques
-// (CM_PROBLEM) les plus fréquents.
-const CODES_PROBLEME: Record<string, string> = {
-  "1": "Périphérique mal configuré",
-  "10": "Le périphérique ne peut pas démarrer",
-  "18": "Pilotes à réinstaller",
-  "22": "Périphérique désactivé",
-  "24": "Périphérique absent ou en panne — débranchez/rebranchez",
-  "28": "Pilotes non installés",
-  "31": "Ne fonctionne pas correctement avec cette version de Windows",
-  "37": "Échec d'initialisation du pilote — réinstallation recommandée",
-  "39": "Pilote corrompu ou manquant",
-  "43": "Windows a arrêté ce périphérique (problème matériel signalé)",
-  "45": "Périphérique non connecté",
-  "52": "Windows ne peut pas vérifier la signature numérique du pilote",
-};
-
-function formatDate(iso: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  // Pas de secondes : inutiles pour un journal, elles ajoutent du bruit.
-  return d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
-}
-
-function lienRecherche(e: CriticalEvent): string {
-  const q = `${e.provider} ${e.eventId}`;
-  return `https://support.microsoft.com/results?q=${encodeURIComponent(q)}`;
-}
-
-function severityClass(e: CriticalEvent): string {
-  if (e.level === 1) return "critique";
-  if (e.level === 2) return "erreur";
-  if (e.level === 3) return "avertissement";
-  return "info";
-}
-
-// Libellé humain du jour de regroupement : « Aujourd'hui », « Hier », date.
-// `dateCle` est de la forme « 2026-10-31 » (YYYY-MM-DD, jour **local** de
-// l'événement) : sans composante temps ni fuseau, new Date() la parse comme
-// une date locale et le regroupement suit le calendrier de l'utilisateur.
-function libelleJour(dateCle: string): string {
-  const d = new Date(`${dateCle}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return dateCle;
-  const ref = new Date();
-  ref.setHours(12, 0, 0, 0);
-  const hier = new Date(ref);
-  hier.setDate(hier.getDate() - 1);
-  const memeJour = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
-  if (memeJour(d, ref)) return "Aujourd'hui";
-  if (memeJour(d, hier)) return "Hier";
-  return d.toLocaleDateString("fr-FR", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-}
-
-// Clé de regroupement par jour : « 2026-10-31 » en date **locale** de
-// l'événement (cohérente avec formatDate, qui affiche l'heure locale).
-function cleJourLocal(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-// Piège de focus dans une modale : Tab ne s'échappe pas vers l'arrière-plan.
-// Place le focus au premier élément interactif à l'ouverture et le rend à
-// l'élément qui avait ouvert la modale à la fermeture.
-function usePiegeFocus(ref: React.RefObject<HTMLElement | null>, actif: boolean) {
-  useEffect(() => {
-    if (!actif || !ref.current) return;
-    const racine = ref.current;
-    const focusables = () =>
-      Array.from(
-        racine.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((el) => !el.hasAttribute("disabled"));
-    const focusAvant = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    focusables()[0]?.focus();
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const els = focusables();
-      if (els.length === 0) return;
-      const premier = els[0];
-      const dernier = els[els.length - 1];
-      if (e.shiftKey && document.activeElement === premier) {
-        e.preventDefault();
-        dernier.focus();
-      } else if (!e.shiftKey && document.activeElement === dernier) {
-        e.preventDefault();
-        premier.focus();
-      }
-    };
-    racine.addEventListener("keydown", onKeyDown);
-    return () => {
-      racine.removeEventListener("keydown", onKeyDown);
-      // Rend le focus à l'élément qui a ouvert la modale, s'il existe encore.
-      if (focusAvant && document.contains(focusAvant)) focusAvant.focus();
-    };
-  }, [ref, actif]);
-}
-
-// Anneau de score (SVG) : la progression s'anime au montage.
-function Anneau({
-  score,
-  taille,
-  gros = false,
-}: {
-  score: number;
-  taille: number;
-  gros?: boolean;
-}) {
-  const [anime, setAnime] = useState(false);
-  useEffect(() => {
-    const t = requestAnimationFrame(() => setAnime(true));
-    return () => cancelAnimationFrame(t);
-  }, [score]);
-  const epaisseur = gros ? 9 : 7;
-  const rayon = (taille - epaisseur * 2) / 2;
-  const circonference = 2 * Math.PI * rayon;
-  const cible = circonference * (1 - score / 100);
-  const classe = score >= 80 ? "ok" : score >= 50 ? "moyen" : "mauvais";
-  return (
-    <svg
-      width={taille}
-      height={taille}
-      className={`anneau ${classe}`}
-      role="img"
-      aria-label={`Score ${score} sur 100`}
-    >
-      <circle
-        cx={taille / 2}
-        cy={taille / 2}
-        r={rayon}
-        fill="none"
-        className="anneau-fond"
-        strokeWidth={epaisseur}
-      />
-      <circle
-        cx={taille / 2}
-        cy={taille / 2}
-        r={rayon}
-        fill="none"
-        className="anneau-valeur"
-        strokeWidth={epaisseur}
-        strokeLinecap="round"
-        strokeDasharray={circonference}
-        strokeDashoffset={anime ? cible : circonference}
-        transform={`rotate(-90 ${taille / 2} ${taille / 2})`}
-      />
-      <text
-        x="50%"
-        y="50%"
-        dominantBaseline="central"
-        textAnchor="middle"
-        className={`anneau-texte ${gros ? "gros" : ""}`}
-      >
-        {score}
-      </text>
-    </svg>
-  );
-}
-
-// Copie dans le presse-papiers avec repli (execCommand) si l'API Clipboard
-// n'est pas disponible dans le webview.
-async function copierTexte(texte: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(texte);
-  } catch {
-    const zone = document.createElement("textarea");
-    zone.value = texte;
-    document.body.appendChild(zone);
-    zone.select();
-    document.execCommand("copy");
-    zone.remove();
-  }
-}
-
-// Ouvre un lien externe dans le navigateur par défaut du système. Une
-// webview Tauri n'ouvre pas les target="_blank" d'elle-même : on passe
-// par le plugin opener (capacité « opener:default »).
-function ouvrirExterne(url: string) {
-  invoke("plugin:opener|open_url", { url }).catch(() => {
-    /* plugin indisponible : laisser la webview tenter le repli */
-  });
-}
-
-// Ancre externe : href conservé (clavier, statut hover), ouverture via opener.
-function LienExterne({
-  href,
-  className,
-  title,
-  children,
-}: {
-  href: string;
-  className?: string;
-  title?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      className={className}
-      title={title}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(e) => {
-        e.preventDefault();
-        ouvrirExterne(href);
-      }}
-    >
-      {children}
-    </a>
-  );
 }
 
 export default function App() {
@@ -911,10 +671,6 @@ export default function App() {
     }
   }, [canauxDisponibles, canal]);
 
-  // Plan d'action persistant (localStorage) : étapes cochées par problème.
-  const clePlanAction = (p: { provider: string; eventId: number; index: number }) =>
-    `${p.provider}/${p.eventId}/${p.index}`;
-
   function toggleEtapePlan(cle: string) {
     const n = { ...planAction, [cle]: !planAction[cle] };
     setPlanAction(n);
@@ -946,48 +702,6 @@ export default function App() {
     } finally {
       setAuditChargement(false);
     }
-  }
-
-  function rapportMarkdown(a: AuditSante, plan: Record<string, boolean>): string {
-    const lignes: string[] = [
-      `# Rapport d'audit — Libre EventLog`,
-      ``,
-      `Généré le ${a.genereLe} — ${a.totalEvenements} événement(s) analysé(s)`,
-      ``,
-      `## Score global : ${a.global}/100`,
-      ``,
-    ];
-    if (a.categories.length > 0) {
-      lignes.push(`## Santé par catégorie`, ``);
-      for (const c of a.categories) {
-        lignes.push(`- **${c.categorie}** : ${c.score}/100 (${c.problemes} problème(s))`);
-      }
-      lignes.push(``);
-    }
-    if (a.problemes.length > 0) {
-      lignes.push(`## Problèmes détectés`, ``);
-      for (const p of a.problemes) {
-        lignes.push(
-          `### ${p.titre}`,
-          ``,
-          `- Provider : \`${p.provider}\` — événement ${p.eventId}`,
-          `- Gravité : ${p.level === 1 ? "Critique" : p.level === 2 ? "Erreur" : p.level === 3 ? "Avertissement" : "Info"} — ${p.count} occurrence(s)`,
-          `- Catégorie : ${p.categorie}`,
-          ``,
-        );
-        if (p.etapes.length > 0) {
-          lignes.push(`Étapes recommandées :`);
-          for (let i = 0; i < p.etapes.length; i++) {
-            const faite = !!plan[clePlanAction({ provider: p.provider, eventId: p.eventId, index: i })];
-            lignes.push(`- [${faite ? "x" : " "}] ${p.etapes[i]}`);
-          }
-          lignes.push(``);
-        }
-      }
-    } else {
-      lignes.push(`Aucun problème détecté. Système sain ! 🎉`);
-    }
-    return lignes.join("\n");
   }
 
   function telechargerRapport() {

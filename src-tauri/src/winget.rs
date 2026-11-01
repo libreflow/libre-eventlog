@@ -273,6 +273,7 @@ pub fn mise_a_jour_applications(
         if let Some((_, entree_id)) = &flux {
             enregistrer_processus(*entree_id, child.id());
         }
+        log::info!("[maj-app] winget upgrade --id {id}");
         match attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES, flux.clone()) {
             Ok(out) => {
                 let stdout_pkg = String::from_utf8_lossy(&out.stdout);

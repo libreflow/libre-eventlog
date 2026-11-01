@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  ScrollText,
+  Trash2,
   Cpu,
   Download,
   ExternalLink,
@@ -19,7 +21,7 @@ import { usePiegeFocus } from "../hooks/usePiegeFocus";
 import { CODES_PROBLEME, fabricantTrouve } from "../lib/materiel";
 import { CORRECTIFS_SYSTEME, MAJ_APPS } from "../lib/catalogue";
 
-type OngletMaj = "apps" | "windows" | "bios" | "correctifs";
+type OngletMaj = "apps" | "windows" | "bios" | "correctifs" | "journal";
 
 // Modale Maintenance : 4 onglets (applications winget, Windows Update,
 // matériel/BIOS, correctifs système). L'état de l'onglet actif est local ;
@@ -55,6 +57,10 @@ export function ModaleMaintenance({
   onActualiserHw,
   // Correctifs
   onExecuterCorrectif,
+  journal,
+  chargementJournal,
+  onRafraichirJournal,
+  onPurgerJournal,
 }: {
   elevated: boolean | null;
   runningCmd: string | null;
@@ -82,6 +88,10 @@ export function ModaleMaintenance({
   problemesHw: ProblemDevice[];
   onActualiserHw: () => void;
   onExecuterCorrectif: (cmd: CommandeFix) => void;
+  journal: string[];
+  chargementJournal: boolean;
+  onRafraichirJournal: () => void;
+  onPurgerJournal: () => void;
 }) {
   const [onglet, setOnglet] = useState<OngletMaj>("apps");
   const modalRef = useRef<HTMLDivElement>(null);
@@ -112,6 +122,7 @@ export function ModaleMaintenance({
               ["windows", "Windows & pilotes"],
               ["bios", "Matériel & BIOS"],
               ["correctifs", "Correctifs système"],
+              ["journal", "Journal"],
             ] as const
           ).map(([cle, libelle]) => (
             <button
@@ -420,6 +431,42 @@ export function ModaleMaintenance({
             </div>
 
             <div className="modal-actions">
+              <button className="btn" onClick={onFermer}>
+                Fermer
+              </button>
+            </div>
+          </>
+        )}
+
+        {onglet === "journal" && (
+          <>
+            <p className="cmd-desc">
+              <ScrollText className="icon" aria-hidden="true" />
+              Journal local des commandes exécutées (fichier de l'application,
+              rotation automatique à 512 Ko). Chaque commande système passée
+              par Libre EventLog y laisse une trace : commande, code de
+              sortie, durée et statut d'élévation.
+            </p>
+
+            {chargementJournal && (
+              <p className="maj-status"><Loader2 className="icon spin" aria-hidden="true" /> Lecture du journal…</p>
+            )}
+
+            {!chargementJournal && journal.length === 0 && (
+              <p className="maj-status"><CheckCircle2 className="icon ok" aria-hidden="true" /> Aucune entrée dans le journal.</p>
+            )}
+
+            {!chargementJournal && journal.length > 0 && (
+              <pre className="journal-pre">{journal.join("\n")}</pre>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn" onClick={onRafraichirJournal} disabled={chargementJournal}>
+                <RefreshCw className="icon" aria-hidden="true" /> Rafraîchir
+              </button>
+              <button className="btn" onClick={onPurgerJournal} disabled={chargementJournal || journal.length === 0}>
+                <Trash2 className="icon" aria-hidden="true" /> Purger
+              </button>
               <button className="btn" onClick={onFermer}>
                 Fermer
               </button>

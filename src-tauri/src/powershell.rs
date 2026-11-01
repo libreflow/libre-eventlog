@@ -320,6 +320,20 @@ pub fn executer_commande_ps(
 
     let output = output?;
 
+    // Journal local : traçabilité de chaque commande système exécutée.
+    log::info!(
+        "[commande] {} | exit={:?} | {} ms | élevé={} | {}",
+        commande,
+        output.status.code(),
+        start.elapsed().as_millis(),
+        elevated,
+        if output.status.success() {
+            "ok"
+        } else {
+            "échec"
+        }
+    );
+
     Ok(CommandResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),

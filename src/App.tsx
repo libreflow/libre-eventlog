@@ -121,6 +121,8 @@ export default function App() {
   const [planAction, setPlanAction] = useState<Record<string, boolean>>({});
   const [rapportCopie, setRapportCopie] = useState(false);
   const [historiqueAudits, setHistoriqueAudits] = useState<EntreeAudit[]>([]);
+  const [journal, setJournal] = useState<string[]>([]);
+  const [chargementJournal, setChargementJournal] = useState(false);
   const { theme, basculerTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLElement>(null);
@@ -226,6 +228,27 @@ export default function App() {
         ? new Set()
         : new Set(majPaquets.map((p) => p.id)),
     );
+  }
+
+  async function chargerJournal() {
+    setChargementJournal(true);
+    try {
+      const lignes = await invoke<string[]>("lire_journal", { maxLignes: 500 });
+      setJournal(lignes);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setChargementJournal(false);
+    }
+  }
+
+  async function purgerJournal() {
+    try {
+      await invoke("purger_journal");
+      setJournal([]);
+    } catch (e) {
+      setError(String(e));
+    }
   }
 
   function executerMajApps(ids: string[]) {
@@ -715,6 +738,7 @@ export default function App() {
           onFermer={() => setMajOuverte(false)}
           onOngletChange={(cle) => {
             if (cle === "bios" && !hwCharge && !hwChargement) chargerMateriel();
+            if (cle === "journal") chargerJournal();
           }}
           chargementApps={majChargement}
           paquetsApps={majPaquets}
@@ -738,6 +762,10 @@ export default function App() {
           problemesHw={hwProblemes}
           onActualiserHw={chargerMateriel}
           onExecuterCorrectif={demanderExecution}
+          journal={journal}
+          chargementJournal={chargementJournal}
+          onRafraichirJournal={chargerJournal}
+          onPurgerJournal={purgerJournal}
         />
       )}
 

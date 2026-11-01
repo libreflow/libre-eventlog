@@ -1820,3 +1820,20 @@ input {
 .events-table td.empty-state {
   height: auto;
 }
+
+/* Journal local des commandes (onglet Maintenance) */
+.journal-pre {
+  margin: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: "JetBrains Mono Variable", "Cascadia Code", "Consolas", ui-monospace, monospace;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--code-text);
+}

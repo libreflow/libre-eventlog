@@ -9,6 +9,7 @@
 
 mod audit;
 mod collecte;
+mod journal;
 mod kb;
 mod materiel;
 mod powershell;
@@ -19,6 +20,7 @@ mod wu;
 
 pub use audit::*;
 pub use collecte::*;
+pub use journal::*;
 pub use kb::*;
 pub use materiel::*;
 pub use powershell::*;
@@ -32,6 +34,20 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        // Journal local des commandes exécutées (traçabilité de l'outil
+        // qui modifie le système) : rotation à 512 Ko, un seul historique.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("libre-eventlog".into()),
+                    },
+                )])
+                .level(log::LevelFilter::Info)
+                .max_file_size(512_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             get_critical_events,
             get_diagnostic,
@@ -45,7 +61,9 @@ pub fn run() {
             get_health_audit,
             relancer_admin,
             check_elevation,
-            annuler_commande
+            annuler_commande,
+            lire_journal,
+            purger_journal
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Libre EventLog");

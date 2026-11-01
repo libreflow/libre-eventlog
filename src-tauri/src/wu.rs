@@ -123,6 +123,11 @@ pub fn installer_mises_a_jour_windows(
     let elevated = is_elevated();
     let start = Instant::now();
 
+    log::info!(
+        "[maj-windows] installation de {} mise(s) à jour Windows",
+        update_ids.len()
+    );
+
     let mut args: Vec<String> = Vec::new();
     args.extend(update_ids);
 

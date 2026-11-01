@@ -324,6 +324,34 @@ fn check_elevation() -> bool {
     is_elevated()
 }
 
+// Attend la fin d'un processus enfant avec un délai maximal ; au-delà,
+// le processus est tué (filet de sécurité contre les commandes bloquées).
+fn attendre_avec_timeout(
+    mut child: std::process::Child,
+    timeout_secondes: u64,
+) -> Result<std::process::Output, String> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if start.elapsed().as_secs() >= timeout_secondes {
+                    let _ = child.kill();
+                    return Err(format!(
+                        "Commande annulée : délai de {} s dépassé.",
+                        timeout_secondes
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("Erreur pendant l'exécution : {}", e)),
+        }
+    }
+    child
+        .wait_with_output()
+        .map_err(|e| format!("Impossible de lire la sortie : {}", e))
+}
+
 #[tauri::command]
 fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
     const TIMEOUT_SECONDES: u64 = 120;
@@ -352,33 +380,212 @@ fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
         .spawn()
         .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
 
-    // Filet de sécurité : une commande bloquée trop longtemps (ex. scan long
-    // ou cmdlet interactive malgré -NonInteractive) est tuée après 120 s.
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if start.elapsed().as_secs() >= TIMEOUT_SECONDES {
-                    let _ = child.kill();
-                    return Err(format!(
-                        "Commande annulée : délai de {} s dépassé.",
-                        TIMEOUT_SECONDES
-                    ));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            Err(e) => return Err(format!("Erreur pendant l'exécution : {}", e)),
-        }
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Impossible de lire la sortie : {}", e))?;
+    let output = attendre_avec_timeout(child, TIMEOUT_SECONDES)?;
 
     Ok(CommandResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         exit_code: output.status.code(),
+        duration_ms: start.elapsed().as_millis(),
+        elevated,
+    })
+}
+
+const WINGET_TIMEOUT_SECONDES: u64 = 600;
+
+fn spawn_winget(args: &[&str]) -> Result<std::process::Child, String> {
+    let essai = |exe: &str| -> Result<std::process::Child, String> {
+        Command::new(exe)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .creation_flags_windows_no_window()
+            .spawn()
+            .map_err(|e| format!("Impossible de lancer {} : {}", exe, e))
+    };
+
+    // winget est un alias d'exécution d'app : en cas d'échec via le PATH,
+    // on retente l'alias explicite dans %LOCALAPPDATA%.
+    if let Ok(child) = essai("winget") {
+        return Ok(child);
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        let exe = std::path::Path::new(&local).join(r"Microsoft\WindowsApps\winget.exe");
+        if exe.exists() {
+            return essai(&exe.to_string_lossy());
+        }
+    }
+    Err(
+        "winget est introuvable. Installez « App Installer » depuis le Microsoft Store \
+         puis réessayez."
+            .into(),
+    )
+}
+
+// Taille récursive d'un fichier ou d'un répertoire.
+fn taille_entree(path: &std::path::Path) -> u64 {
+    if path.is_dir() {
+        std::fs::read_dir(path)
+            .map(|entries| {
+                entries.flatten().map(|e| taille_entree(&e.path())).sum()
+            })
+            .unwrap_or(0)
+    } else {
+        std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+    }
+}
+
+// Supprime le contenu d'un répertoire (pas le répertoire lui-même).
+// Retourne (nombre d'éléments purgés, total d'octets libérés).
+fn purge_contenu_repertoire(dir: &std::path::Path) -> (usize, u64) {
+    let mut nb = 0;
+    let mut octets = 0;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let taille = taille_entree(&p);
+            let ok = if p.is_dir() {
+                std::fs::remove_dir_all(&p).is_ok()
+            } else {
+                std::fs::remove_file(&p).is_ok()
+            };
+            if ok {
+                nb += 1;
+                octets += taille;
+            }
+        }
+    }
+    (nb, octets)
+}
+
+fn taille_lisible(octets: u64) -> String {
+    if octets >= 1024 * 1024 {
+        format!("{:.1} Mo", octets as f64 / (1024.0 * 1024.0))
+    } else if octets >= 1024 {
+        format!("{:.1} Ko", octets as f64 / 1024.0)
+    } else {
+        format!("{} o", octets)
+    }
+}
+
+// Lecture seule : recense les entrées de désinstallation orphelines (l'
+// emplacement a disparu : ancienne version désinstallée dont il reste une
+// trace) et les applications présentes en plusieurs versions, sources
+// classiques de conflits. Rien n'est supprimé automatiquement ici.
+const PS_SCAN_RESIDUS: &str = r#"
+$paths = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+$apps = foreach ($p in $paths) { Get-ItemProperty $p -ErrorAction SilentlyContinue | Where-Object DisplayName }
+$orph = $apps | Where-Object { $_.InstallLocation -and -not (Test-Path ($_.InstallLocation.Trim('"'))) }
+if ($orph) {
+  'Anciennes versions orphelines (emplacement supprime, entree de registre restante) :'
+  $orph | ForEach-Object { "  - {0} {1} -> {2}" -f $_.DisplayName, $_.DisplayVersion, $_.InstallLocation }
+} else {
+  'Aucune entree orpheline detectee.'
+}
+$dups = $apps | Group-Object DisplayName | Where-Object Count -gt 1
+if ($dups) {
+  ''
+  'Applications presentes en plusieurs versions (risque de conflit) :'
+  $dups | ForEach-Object { "  - {0} : {1}" -f $_.Name, ($_.Group.DisplayVersion -join ', ') }
+} else {
+  ''
+  'Aucune application en double version.'
+}
+"#;
+
+#[tauri::command]
+fn update_applications() -> Result<CommandResult, String> {
+    let elevated = is_elevated();
+    let start = Instant::now();
+    let mut rapport = String::new();
+    let mut stderr_all = String::new();
+    let mut exit_code: Option<i32> = None;
+
+    // 1) Mise à jour de toutes les applications installées via winget.
+    let mut child = spawn_winget(&[
+        "upgrade",
+        "--all",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+        "--disable-interactivity",
+    ])?;
+    match attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES) {
+        Ok(out) => {
+            exit_code = out.status.code();
+            rapport.push_str(&String::from_utf8_lossy(&out.stdout));
+            stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));
+        }
+        Err(e) => {
+            stderr_all.push_str(&e);
+        }
+    }
+
+    // 2) Purge des installateurs temporaires laissés par winget
+    //    (résidus d'anciennes versions téléchargées).
+    rapport.push_str("\r\n\r\n=== Nettoyage des installateurs residuels ===\r\n");
+    let mut caches: Vec<(&str, std::path::PathBuf)> =
+        vec![("Cache utilisateur", std::env::temp_dir().join("WinGet"))];
+    if let Some(windir) = std::env::var_os("SystemRoot") {
+        caches.push((
+            "Cache systeme",
+            std::path::Path::new(&windir)
+                .join("SystemTemp")
+                .join("WinGet"),
+        ));
+    }
+    for (label, dir) in caches {
+        if dir.is_dir() {
+            let (nb, octets) = purge_contenu_repertoire(&dir);
+            rapport.push_str(&format!(
+                "{} : {} element(s) purge(s), {} liberes — {}\r\n",
+                label,
+                nb,
+                taille_lisible(octets),
+                dir.display()
+            ));
+        } else {
+            rapport.push_str(&format!("{} : rien a purger.\r\n", label));
+        }
+    }
+
+    // 3) Détection des résidus d'anciennes versions (lecture seule).
+    rapport.push_str("\r\n=== Residus d'anciennes versions ===\r\n");
+    let mut child = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            PS_SCAN_RESIDUS,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags_windows_no_window()
+        .spawn()
+        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    match attendre_avec_timeout(child, 60) {
+        Ok(out) => {
+            if exit_code.is_none() {
+                exit_code = out.status.code();
+            }
+            rapport.push_str(&String::from_utf8_lossy(&out.stdout));
+            stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));
+        }
+        Err(e) => stderr_all.push_str(&e),
+    }
+    rapport.push_str(
+        "\r\nAstuce : les entrees orphelines peuvent etre nettoyees via \
+         « Parametres > Applications » ou en desinstallant l'ancienne version listee.\r\n",
+    );
+
+    Ok(CommandResult {
+        stdout: rapport,
+        stderr: stderr_all,
+        exit_code,
         duration_ms: start.elapsed().as_millis(),
         elevated,
     })
@@ -485,6 +692,7 @@ pub fn run() {
             get_critical_events,
             get_diagnostic,
             run_diagnostic_command,
+            update_applications,
             check_elevation
         ])
         .run(tauri::generate_context!())
@@ -570,5 +778,37 @@ mod tests {
                 e.timestamp
             );
         }
+    }
+
+    #[test]
+    fn purge_contenu_repertoire_fonctionne() {
+        let base = std::env::temp_dir().join("libre-eventlog-test-purge");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("sous-dossier")).unwrap();
+        std::fs::write(base.join("a.tmp"), b"12345678").unwrap();
+        std::fs::write(base.join("sous-dossier").join("b.tmp"), b"1234").unwrap();
+
+        let (nb, octets) = purge_contenu_repertoire(&base);
+        assert_eq!(nb, 2); // a.tmp + sous-dossier
+        assert_eq!(octets, 12); // 8 octets du fichier + 4 dans le sous-dossier
+        // le répertoire lui-même est conservé, mais vidé
+        assert!(base.is_dir());
+        assert!(std::fs::read_dir(&base).unwrap().next().is_none());
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn purge_repertoire_inexistant_sans_erreur() {
+        let (nb, octets) =
+            purge_contenu_repertoire(std::path::Path::new("Z:/introuvable/libre-eventlog"));
+        assert_eq!((nb, octets), (0, 0));
+    }
+
+    #[test]
+    fn taille_lisible_formats() {
+        assert_eq!(taille_lisible(512), "512 o");
+        assert_eq!(taille_lisible(2048), "2.0 Ko");
+        assert_eq!(taille_lisible(5 * 1024 * 1024), "5.0 Mo");
     }
 }

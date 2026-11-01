@@ -5,6 +5,20 @@ import type { CommandResult, CommandeFix, CriticalEvent, Diagnostic } from "./ty
 const CANAUX = ["Tous", "System", "Application"] as const;
 const SEVERITES = ["Toutes", "Critique", "Erreur"] as const;
 
+// Maintenance intégrée : mise à jour de toutes les applications via winget,
+// purge des installateurs résiduels et détection des anciennes versions.
+// `commande` est purement indicative : l'exécution passe par la commande
+// Tauri dédiée `update_applications` (voir executerCommande).
+const MAJ_APPS: CommandeFix = {
+  label: "Mettre à jour toutes les applications",
+  description:
+    "winget upgrade --all, purge des installateurs résiduels et détection des anciennes versions",
+  commande: "winget upgrade --all --silent (maintenance intégrée)",
+  type: "action",
+  elevation: true,
+  confirme: true,
+};
+
 type SortKey = "timestamp" | "canal" | "provider" | "eventId" | "severity";
 type SortDir = "asc" | "desc";
 
@@ -134,9 +148,12 @@ export default function App() {
     ]);
     setRunningCmd(cmd.commande);
     try {
-      const res = await invoke<CommandResult>("run_diagnostic_command", {
-        commande: cmd.commande,
-      });
+      const res =
+        cmd === MAJ_APPS
+          ? await invoke<CommandResult>("update_applications")
+          : await invoke<CommandResult>("run_diagnostic_command", {
+              commande: cmd.commande,
+            });
       setTerminal((t) =>
         t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
       );
@@ -245,6 +262,18 @@ export default function App() {
       <div className="toolbar">
         <button className="btn primary" onClick={charger} disabled={loading}>
           {loading ? "Chargement…" : "Analyser le journal"}
+        </button>
+        <button
+          className="btn"
+          onClick={() => demanderExecution(MAJ_APPS)}
+          disabled={elevated === false || runningCmd !== null}
+          title={
+            elevated === false
+              ? "Nécessite de relancer l'application en administrateur"
+              : "Met à jour toutes les applications via winget, purge les installateurs résiduels et liste les anciennes versions (peut prendre plusieurs minutes)"
+          }
+        >
+          {elevated === false ? "🔒" : "⬆"} Mettre à jour les apps
         </button>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
           {CANAUX.map((c) => (
@@ -548,6 +577,9 @@ export default function App() {
             <p>
               Vous êtes sur le point d'exécuter la commande suivante sur ce système :
             </p>
+            {confirmCmd.description && (
+              <p className="cmd-desc">{confirmCmd.description}</p>
+            )}
             <code className="cmd-line">{confirmCmd.commande}</code>
             {confirmCmd.elevation && elevated === false && (
               <p className="modal-warn">

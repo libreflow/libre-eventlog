@@ -530,9 +530,17 @@ export default function App() {
     return () => clearInterval(timer);
   }, [autoRefresh]);
 
-  // Thème clair/sombre persistant.
+  // Thème clair/sombre persistant. Le chrome de la fenêtre (barre de titre
+  // Windows) suit le même thème, sinon le mode clair garde une barre sombre.
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) =>
+        getCurrentWindow().setTheme(theme === "sombre" ? "dark" : "light"),
+      )
+      .catch(() => {
+        /* hors webview Tauri (navigateur) : pas de chrome à synchroniser */
+      });
     try {
       localStorage.setItem("libre-eventlog-theme", theme);
     } catch {

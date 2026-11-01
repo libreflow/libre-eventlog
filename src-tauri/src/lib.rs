@@ -432,6 +432,15 @@ const PS_DENYLIST: &[&str] = &[
     "cipher /w",
     "sdelete",
     "reg delete",
+    // wevtutil et netsh sont des exécutables autorisés (lecture de journaux,
+    // réinitialisation réseau) : leurs variantes destructives restent
+    // interdites — effacement de canal (wevtutil cl) et pare-feu (netsh
+    // advfirewall set/del).
+    "wevtutil cl",
+    "wevtutil clear-log",
+    "advfirewall set",
+    "advfirewall del",
+    "advfirewall add",
 ];
 
 // Liste blanche (deny-by-default) : chaque segment d'une commande (séparé
@@ -1687,6 +1696,13 @@ mod tests {
         assert!(commande_autorisee(r"Remove-Item C:\Windows\Temp\x").is_err());
         assert!(commande_autorisee(r"REG DELETE HKLM\Software\X /f").is_err());
         assert!(commande_autorisee(r"cipher /w:C:\").is_err());
+        // exécutables autorisés, variantes destructives interdites :
+        // effacement d'un canal d'événements, coupure du pare-feu
+        assert!(commande_autorisee("wevtutil cl System").is_err());
+        assert!(commande_autorisee("wevtutil clear-log System").is_err());
+        assert!(commande_autorisee("netsh advfirewall set allprofiles state off").is_err());
+        // …mais leurs usages lecture/réparation de la base restent permis
+        assert!(commande_autorisee("netsh winsock reset").is_ok());
     }
 
     // Liste blanche : deny-by-default pour tout exécutable/cmdlet inconnu.

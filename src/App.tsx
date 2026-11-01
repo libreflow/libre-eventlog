@@ -5,6 +5,7 @@ import type {
   CommandeFix,
   CriticalEvent,
   Diagnostic,
+  WinUpdate,
   WingetPackage,
 } from "./types";
 
@@ -24,6 +25,77 @@ const MAJ_APPS: CommandeFix = {
   elevation: true,
   confirme: true,
 };
+
+// Catalogue de correctifs système prédéfinis (aucune commande arbitraire).
+// Exécutés via run_diagnostic_command : confirmation, denylist et terminal
+// intégrés. Durées indicatives pour les opérations longues.
+const CORRECTIFS_SYSTEME: CommandeFix[] = [
+  {
+    label: "Vérifier les fichiers système (sfc)",
+    description: "sfc /scannow — inspecte et répare les fichiers Windows corrompus (10 à 20 min)",
+    commande: "sfc /scannow",
+    type: "action",
+    elevation: true,
+    confirme: true,
+  },
+  {
+    label: "Contrôle rapide du magasin de composants",
+    description: "DISM CheckHealth — détection rapide d'une corruption du magasin Windows",
+    commande: "DISM /Online /Cleanup-Image /CheckHealth",
+    type: "action",
+    elevation: true,
+    confirme: false,
+  },
+  {
+    label: "Analyser le magasin de composants",
+    description: "DISM ScanHealth — analyse approfondie du magasin de composants (long)",
+    commande: "DISM /Online /Cleanup-Image /ScanHealth",
+    type: "action",
+    elevation: true,
+    confirme: true,
+  },
+  {
+    label: "Réparer le magasin de composants",
+    description: "DISM RestoreHealth — répare le magasin via Windows Update (très long, à faire avant sfc)",
+    commande: "DISM /Online /Cleanup-Image /RestoreHealth",
+    type: "action",
+    elevation: true,
+    confirme: true,
+  },
+  {
+    label: "Analyser le disque système",
+    description: "chkdsk C: /scan — vérification en ligne du disque système, sans démontage",
+    commande: "chkdsk C: /scan",
+    type: "action",
+    elevation: true,
+    confirme: false,
+  },
+  {
+    label: "Vider le cache DNS",
+    description: "ipconfig /flushdns — résout les problèmes de résolution de noms",
+    commande: "ipconfig /flushdns",
+    type: "action",
+    elevation: false,
+    confirme: false,
+  },
+  {
+    label: "Réinitialiser la pile réseau",
+    description: "réinitialise Winsock et le cache ARP — utile après une infection ou des soucis réseau",
+    commande:
+      "netsh winsock reset; netsh int ip reset; arp -d *; ipconfig /release; ipconfig /renew; ipconfig /flushdns",
+    type: "action",
+    elevation: true,
+    confirme: true,
+  },
+  {
+    label: "Vérifier et réparer les fichiers système en une passe",
+    description: "DISM RestoreHealth puis sfc /scannow — le combo recommandé par Microsoft (très long)",
+    commande: "DISM /Online /Cleanup-Image /RestoreHealth; sfc /scannow",
+    type: "action",
+    elevation: true,
+    confirme: true,
+  },
+];
 
 type SortKey = "timestamp" | "canal" | "provider" | "eventId" | "severity";
 type SortDir = "asc" | "desc";
@@ -84,6 +156,11 @@ export default function App() {
   const [majChargement, setMajChargement] = useState(false);
   const [majPaquets, setMajPaquets] = useState<WingetPackage[]>([]);
   const [majSelection, setMajSelection] = useState<Set<string>>(new Set());
+  const [majOnglet, setMajOnglet] = useState<"apps" | "windows" | "correctifs">("apps");
+  const [wuPaquets, setWuPaquets] = useState<WinUpdate[]>([]);
+  const [wuSelection, setWuSelection] = useState<Set<string>>(new Set());
+  const [wuChargement, setWuChargement] = useState(false);
+  const [wuScanFait, setWuScanFait] = useState(false);
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
@@ -254,6 +331,74 @@ export default function App() {
     }
   }
 
+  async function chargerWu() {
+    setWuChargement(true);
+    setWuScanFait(true);
+    try {
+      const res = await invoke<WinUpdate[]>("list_windows_updates");
+      setWuPaquets(res);
+      setWuSelection(new Set(res.map((u) => u.updateId)));
+    } catch (e) {
+      setWuPaquets([]);
+      setError(String(e));
+    } finally {
+      setWuChargement(false);
+    }
+  }
+
+  function toggleWu(id: string) {
+    setWuSelection((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  function toggleToutWu() {
+    setWuSelection((s) =>
+      s.size === wuPaquets.length
+        ? new Set()
+        : new Set(wuPaquets.map((u) => u.updateId)),
+    );
+  }
+
+  async function executerWuInstall(ids: string[]) {
+    setMajOuverte(false);
+    const id = nextId.current++;
+    const time = new Date().toLocaleTimeString("fr-FR");
+    setTerminalOuvert(true);
+    setTerminal((t) => [
+      ...t,
+      {
+        id,
+        label: "Mises à jour Windows",
+        commande: `Installation de ${ids.length} mise(s) à jour Windows via l'agent Windows Update`,
+        result: null,
+        error: null,
+        running: true,
+        time,
+      },
+    ]);
+    setRunningCmd("windows-update");
+    try {
+      const res = await invoke<CommandResult>("install_windows_updates", {
+        updateIds: ids,
+      });
+      setTerminal((t) =>
+        t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
+      );
+    } catch (err) {
+      setTerminal((t) =>
+        t.map((e) =>
+          e.id === id ? { ...e, error: String(err), running: false } : e,
+        ),
+      );
+    } finally {
+      setRunningCmd(null);
+    }
+  }
+
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase();
     const now = Date.now();
@@ -348,10 +493,10 @@ export default function App() {
           title={
             elevated === false
               ? "Nécessite de relancer l'application en administrateur"
-              : "Liste les mises à jour disponibles : choisissez celles à installer, les installateurs résiduels sont purgés et les anciennes versions listées"
+              : "Maintenance : mise à jour des applications (winget), mises à jour Windows et pilotes, correctifs système (sfc, DISM…)"
           }
         >
-          {elevated === false ? "🔒" : "⬆"} Mettre à jour les apps
+          {elevated === false ? "🔒" : "🛠"} Maintenance
         </button>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
           {CANAUX.map((c) => (
@@ -651,59 +796,198 @@ export default function App() {
           onClick={() => !majChargement && setMajOuverte(false)}
         >
           <div className="modal modal-maj" onClick={(e) => e.stopPropagation()}>
-            <h3 id="maj-title">⬆ Mettre à jour les applications</h3>
-            <p className="cmd-desc">{MAJ_APPS.description}</p>
+            <h3 id="maj-title">🛠 Maintenance</h3>
 
-            {majChargement && (
-              <p className="maj-status">⏳ Recherche des mises à jour disponibles…</p>
-            )}
-
-            {!majChargement && majPaquets.length === 0 && (
-              <p className="maj-status">✅ Aucune mise à jour disponible. Tout est à jour !</p>
-            )}
-
-            {!majChargement && majPaquets.length > 0 && (
-              <div className="maj-liste" role="group" aria-label="Applications à mettre à jour">
-                <label className="maj-item maj-tous">
-                  <input
-                    type="checkbox"
-                    checked={majSelection.size === majPaquets.length}
-                    onChange={toggleTout}
-                  />
-                  <strong>
-                    Tout sélectionner ({majSelection.size}/{majPaquets.length})
-                  </strong>
-                </label>
-                {majPaquets.map((p) => (
-                  <label key={p.id} className="maj-item">
-                    <input
-                      type="checkbox"
-                      checked={majSelection.has(p.id)}
-                      onChange={() => togglePaquet(p.id)}
-                    />
-                    <span className="maj-nom" title={p.id}>
-                      {p.name}
-                    </span>
-                    <span className="maj-versions mono">
-                      {p.version} → {p.available}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setMajOuverte(false)} disabled={majChargement}>
-                Annuler
-              </button>
-              <button
-                className="btn primary"
-                disabled={majChargement || majSelection.size === 0 || runningCmd !== null}
-                onClick={() => executerMajApps([...majSelection])}
-              >
-                ⬆ Mettre à jour ({majSelection.size})
-              </button>
+            <div className="maj-onglets" role="tablist" aria-label="Sections de maintenance">
+              {(
+                [
+                  ["apps", "Applications"],
+                  ["windows", "Windows & pilotes"],
+                  ["correctifs", "Correctifs système"],
+                ] as const
+              ).map(([cle, libelle]) => (
+                <button
+                  key={cle}
+                  role="tab"
+                  aria-selected={majOnglet === cle}
+                  className={`maj-onglet ${majOnglet === cle ? "actif" : ""}`}
+                  onClick={() => setMajOnglet(cle)}
+                >
+                  {libelle}
+                </button>
+              ))}
             </div>
+
+            {majOnglet === "apps" && (
+              <>
+                <p className="cmd-desc">{MAJ_APPS.description}</p>
+
+                {majChargement && (
+                  <p className="maj-status">⏳ Recherche des mises à jour disponibles…</p>
+                )}
+
+                {!majChargement && majPaquets.length === 0 && (
+                  <p className="maj-status">✅ Aucune mise à jour d'application disponible. Tout est à jour !</p>
+                )}
+
+                {!majChargement && majPaquets.length > 0 && (
+                  <div className="maj-liste" role="group" aria-label="Applications à mettre à jour">
+                    <label className="maj-item maj-tous">
+                      <input
+                        type="checkbox"
+                        checked={majSelection.size === majPaquets.length}
+                        onChange={toggleTout}
+                      />
+                      <strong>
+                        Tout sélectionner ({majSelection.size}/{majPaquets.length})
+                      </strong>
+                    </label>
+                    {majPaquets.map((p) => (
+                      <label key={p.id} className="maj-item">
+                        <input
+                          type="checkbox"
+                          checked={majSelection.has(p.id)}
+                          onChange={() => togglePaquet(p.id)}
+                        />
+                        <span className="maj-nom" title={p.id}>
+                          {p.name}
+                        </span>
+                        <span className="maj-versions mono">
+                          {p.version} → {p.available}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <div className="modal-actions">
+                  <button className="btn" onClick={() => setMajOuverte(false)} disabled={majChargement}>
+                    Fermer
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={majChargement || majSelection.size === 0 || runningCmd !== null}
+                    onClick={() => executerMajApps([...majSelection])}
+                  >
+                    ⬆ Mettre à jour ({majSelection.size})
+                  </button>
+                </div>
+              </>
+            )}
+
+            {majOnglet === "windows" && (
+              <>
+                <p className="cmd-desc">
+                  Mises à jour Windows et pilotes via l'agent Windows Update (WSUS/Windows Update
+                  configuré sur la machine). Le scan peut prendre plusieurs minutes ; les pilotes
+                  sont marqués 🔧.
+                </p>
+
+                {wuChargement && (
+                  <p className="maj-status">⏳ Recherche des mises à jour Windows et pilotes…</p>
+                )}
+
+                {!wuChargement && !wuScanFait && (
+                  <p className="maj-status">
+                    Lancez une recherche pour afficher les mises à jour Windows et pilotes disponibles.
+                  </p>
+                )}
+
+                {!wuChargement && wuScanFait && wuPaquets.length === 0 && (
+                  <p className="maj-status">✅ Aucune mise à jour Windows ni pilote en attente.</p>
+                )}
+
+                {!wuChargement && wuPaquets.length > 0 && (
+                  <div className="maj-liste" role="group" aria-label="Mises à jour Windows à installer">
+                    <label className="maj-item maj-tous">
+                      <input
+                        type="checkbox"
+                        checked={wuSelection.size === wuPaquets.length}
+                        onChange={toggleToutWu}
+                      />
+                      <strong>
+                        Tout sélectionner ({wuSelection.size}/{wuPaquets.length})
+                      </strong>
+                    </label>
+                    {wuPaquets.map((u) => (
+                      <label key={u.updateId} className="maj-item">
+                        <input
+                          type="checkbox"
+                          checked={wuSelection.has(u.updateId)}
+                          onChange={() => toggleWu(u.updateId)}
+                        />
+                        <span className="maj-nom" title={u.title}>
+                          {u.kind === "Driver" ? "🔧 " : ""}
+                          {u.title}
+                        </span>
+                        <span className="maj-versions mono">{u.sizeMb.toFixed(1)} Mo</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <div className="modal-actions">
+                  <button className="btn" onClick={() => setMajOuverte(false)}>
+                    Fermer
+                  </button>
+                  <button className="btn" onClick={chargerWu} disabled={wuChargement || runningCmd !== null}>
+                    🔄 Rechercher
+                  </button>
+                  <button
+                    className="btn primary"
+                    disabled={wuChargement || wuSelection.size === 0 || runningCmd !== null}
+                    onClick={() => executerWuInstall([...wuSelection])}
+                  >
+                    ⬇ Installer ({wuSelection.size})
+                  </button>
+                </div>
+              </>
+            )}
+
+            {majOnglet === "correctifs" && (
+              <>
+                <p className="cmd-desc">
+                  Correctifs prédéfinis pour les problèmes Windows courants : fichiers système
+                  corrompus, magasin de composants, disque, réseau. Chaque exécution demande
+                  confirmation (quand nécessaire) et s'affiche dans le terminal intégré.
+                </p>
+
+                <div className="maj-liste" role="group" aria-label="Correctifs système">
+                  {CORRECTIFS_SYSTEME.map((cmd) => {
+                    const blocked = cmd.elevation && elevated === false;
+                    return (
+                      <div key={cmd.commande} className="maj-correctif">
+                        <div className="maj-correctif-corps">
+                          <strong>{cmd.label}</strong>
+                          <p className="cmd-desc">{cmd.description}</p>
+                          <code className="cmd-line">{cmd.commande}</code>
+                        </div>
+                        <button
+                          className="btn small"
+                          onClick={() => demanderExecution(cmd)}
+                          disabled={blocked || runningCmd !== null}
+                          title={
+                            blocked
+                              ? "Nécessite de relancer l'application en administrateur"
+                              : cmd.confirme
+                                ? "Une confirmation sera demandée"
+                                : "Exécuter dans la fenêtre principale"
+                          }
+                        >
+                          {blocked ? "🔒" : "▶ Exécuter"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="modal-actions">
+                  <button className="btn" onClick={() => setMajOuverte(false)}>
+                    Fermer
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

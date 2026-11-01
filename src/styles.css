@@ -780,10 +780,38 @@ tr:focus-visible {
   margin-top: 16px;
 }
 
-/* ---------- Modale de mise à jour (sélection winget) ---------- */
+/* ---------- Modale de maintenance ---------- */
 
 .modal-maj {
-  width: min(640px, 92vw);
+  width: min(760px, 94vw);
+}
+
+.maj-onglets {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-soft);
+  margin: 10px 0 4px;
+}
+
+.maj-onglet {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.maj-onglet:hover {
+  color: var(--text);
+}
+
+.maj-onglet.actif {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
 }
 
 .maj-status {
@@ -836,6 +864,35 @@ tr:focus-visible {
   color: var(--muted);
   font-size: 0.78rem;
   white-space: nowrap;
+}
+
+.maj-correctif {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 8px;
+  border-radius: 6px;
+}
+
+.maj-correctif:hover {
+  background: var(--surface-2);
+}
+
+.maj-correctif-corps {
+  flex: 1;
+  min-width: 0;
+}
+
+.maj-correctif-corps .cmd-line {
+  display: block;
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maj-correctif .btn {
+  flex-shrink: 0;
 }
 
 @keyframes fadeIn {

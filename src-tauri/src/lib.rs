@@ -80,6 +80,15 @@ pub struct WingetPackage {
     pub available: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WinUpdate {
+    pub update_id: String,
+    pub title: String,
+    pub kind: String,
+    pub size_mb: f64,
+}
+
 fn severity_label(level: u8) -> String {
     match level {
         1 => "Critique".to_string(),
@@ -561,6 +570,174 @@ async fn list_available_updates() -> Result<Vec<WingetPackage>, String> {
         .map_err(|e| format!("Le recensement des mises à jour a échoué : {}", e))?
 }
 
+// ----- Mises à jour Windows & pilotes (API COM Windows Update) -----
+
+const WU_SCAN_TIMEOUT_SECONDES: u64 = 600;
+const WU_INSTALL_TIMEOUT_SECONDES: u64 = 1800;
+
+// Lecture seule : recherche les mises à jour applicables (logiciels et
+// pilotes) via l'agent Windows Update. Chaque ligne : GUID|type|Mo|titre.
+const PS_WU_SCAN: &str = r#"
+$ErrorActionPreference = 'Stop'
+$session = New-Object -ComObject Microsoft.Update.Session
+$searcher = $session.CreateUpdateSearcher()
+$result = $searcher.Search("IsInstalled=0 and IsHidden=0")
+$result.Updates | ForEach-Object {
+  $kind = if ($_.Type -eq 'Driver') { 'Driver' } else { 'Software' }
+  "{0}|{1}|{2}|{3}" -f $_.Identity.UpdateID, $kind, [math]::Round($_.MaxDownloadContentBytes/1MB,1), ($_.Title -replace '\|',' ')
+}
+"#;
+
+// Les identifiants viennent de notre propre scan ; on les revalide avant
+// de les passer à PowerShell pour écarter toute injection.
+fn id_wu_valide(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-' || c == '{' || c == '}')
+}
+
+fn parse_wu_scan(stdout: &str) -> Vec<WinUpdate> {
+    let mut maj = Vec::new();
+    for ligne in stdout.lines() {
+        let mut champs = ligne.splitn(4, '|');
+        let (Some(id), Some(kind), Some(taille), Some(titre)) = (
+            champs.next(),
+            champs.next(),
+            champs.next(),
+            champs.next(),
+        ) else {
+            continue;
+        };
+        if !id_wu_valide(id) {
+            continue;
+        }
+        maj.push(WinUpdate {
+            update_id: id.to_string(),
+            kind: kind.to_string(),
+            size_mb: taille.trim().parse().unwrap_or(0.0),
+            title: titre.to_string(),
+        });
+    }
+    maj
+}
+
+fn recenser_mises_a_jour_windows() -> Result<Vec<WinUpdate>, String> {
+    let child = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            PS_WU_SCAN,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags_windows_no_window()
+        .spawn()
+        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let out = attendre_avec_timeout(child, WU_SCAN_TIMEOUT_SECONDES)?;
+    if !out.status.success() {
+        return Err(format!(
+            "La recherche de mises à jour Windows a échoué : {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(parse_wu_scan(&String::from_utf8_lossy(&out.stdout)))
+}
+
+#[tauri::command]
+async fn list_windows_updates() -> Result<Vec<WinUpdate>, String> {
+    tauri::async_runtime::spawn_blocking(recenser_mises_a_jour_windows)
+        .await
+        .map_err(|e| format!("La recherche de mises à jour Windows a échoué : {}", e))?
+}
+
+// Télécharge puis installe les mises à jour dont les GUID sont passés en
+// arguments ($args). Résultat détaillé par mise à jour + besoin de reboot.
+const PS_WU_INSTALL: &str = r#"
+$ErrorActionPreference = 'Stop'
+$ids = @($args)
+$session = New-Object -ComObject Microsoft.Update.Session
+$searcher = $session.CreateUpdateSearcher()
+$result = $searcher.Search("IsInstalled=0 and IsHidden=0")
+$coll = New-Object -ComObject Microsoft.Update.UpdateColl
+$choisis = @()
+foreach ($u in $result.Updates) {
+  if ($ids -contains $u.Identity.UpdateID) { [void]$coll.Add($u); $choisis += $u }
+}
+if ($coll.Count -eq 0) {
+  "Aucune mise a jour selectionnee encore applicable (deja installee ?)."
+  exit 0
+}
+"Telechargement de $($coll.Count) mise(s) a jour..."
+$dl = $session.CreateUpdateDownloader()
+$dl.Updates = $coll
+$rd = $dl.Download()
+"Telechargement termine (code $($rd.ResultCode))."
+"Installation..."
+$inst = $session.CreateUpdateInstaller()
+$inst.Updates = $coll
+$ri = $inst.Install()
+for ($i = 0; $i -lt $choisis.Count; $i++) {
+  $rc = $ri.GetUpdateResult($i).ResultCode
+  $txt = switch ($rc) { 2 {'reussie'} 3 {'reussie avec avertissements'} 4 {'en echec'} 5 {'interrompue'} default {"code $rc"} }
+  "  - $($choisis[$i].Title) : $txt"
+}
+$sys = New-Object -ComObject Microsoft.Update.SystemInfo
+if ($sys.RebootRequired) {
+  "REDEMARRAGE REQUIS : un redemarrage du systeme est necessaire pour terminer."
+} else {
+  "Aucun redemarrage requis."
+}
+"#;
+
+fn installer_mises_a_jour_windows(update_ids: Vec<String>) -> Result<CommandResult, String> {
+    if update_ids.iter().any(|id| !id_wu_valide(id)) {
+        return Err("Identifiant de mise à jour invalide.".into());
+    }
+
+    let elevated = is_elevated();
+    let start = Instant::now();
+
+    let mut args: Vec<String> = vec![
+        "-NoProfile".into(),
+        "-NonInteractive".into(),
+        "-ExecutionPolicy".into(),
+        "Bypass".into(),
+        "-Command".into(),
+        PS_WU_INSTALL.into(),
+    ];
+    args.extend(update_ids);
+
+    let child = Command::new("powershell.exe")
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags_windows_no_window()
+        .spawn()
+        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+
+    let out = attendre_avec_timeout(child, WU_INSTALL_TIMEOUT_SECONDES)?;
+
+    Ok(CommandResult {
+        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+        exit_code: out.status.code(),
+        duration_ms: start.elapsed().as_millis(),
+        elevated,
+    })
+}
+
+#[tauri::command]
+async fn install_windows_updates(update_ids: Vec<String>) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || installer_mises_a_jour_windows(update_ids))
+        .await
+        .map_err(|e| format!("L'installation des mises à jour Windows a échoué : {}", e))?
+}
+
 fn spawn_winget(args: &[&str]) -> Result<std::process::Child, String> {
     let essai = |exe: &str| -> Result<std::process::Child, String> {
         Command::new(exe)
@@ -932,6 +1109,8 @@ pub fn run() {
             run_diagnostic_command,
             list_available_updates,
             update_applications,
+            list_windows_updates,
+            install_windows_updates,
             check_elevation
         ])
         .run(tauri::generate_context!())
@@ -1141,6 +1320,32 @@ mod tests_winget {
              Installation réussie.\r\n"
         ));
         assert!(!finalisation_requise(""));
+    }
+
+    #[test]
+    fn parse_scan_wu() {
+        let sortie = "12345678-90ab-cdef-1234-567890abcdef|Driver|12.5|Intel - Display 1.2.3\r\n\
+                     fedcba09-8765-4321-DCBA-0987654321aa|Software|250,25|Mise à jour cumulative Windows 11 (KB5031234)\r\n\
+                     ligne-pourrie-sans-pipe\r\n";
+        let maj = parse_wu_scan(sortie);
+        assert_eq!(maj.len(), 2);
+        assert_eq!(maj[0].update_id, "12345678-90ab-cdef-1234-567890abcdef");
+        assert_eq!(maj[0].kind, "Driver");
+        assert_eq!(maj[0].size_mb, 12.5);
+        assert_eq!(maj[0].title, "Intel - Display 1.2.3");
+        // séparateur décimal FR (virgule) -> taille par défaut
+        assert_eq!(maj[1].size_mb, 0.0);
+        assert_eq!(maj[1].title, "Mise à jour cumulative Windows 11 (KB5031234)");
+    }
+
+    #[test]
+    fn id_wu_rejete_injection() {
+        assert!(id_wu_valide("12345678-90ab-CDEF-1234-567890ABCDEF"));
+        assert!(id_wu_valide("{12345678-90ab-cdef-1234-567890abcdef}"));
+        assert!(!id_wu_valide(""));
+        assert!(!id_wu_valide("exit 1; rm -rf"));
+        assert!(!id_wu_valide("$(calc)"));
+        assert!(!id_wu_valide("id avec espace"));
     }
 
     #[test]

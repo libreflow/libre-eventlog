@@ -44,3 +44,10 @@ export interface WingetPackage {
   version: string;
   available: string;
 }
+
+export interface WinUpdate {
+  updateId: string;
+  title: string;
+  kind: string;
+  sizeMb: number;
+}

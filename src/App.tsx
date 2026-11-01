@@ -78,6 +78,8 @@ export default function App() {
     selectionner,
     diagnostic,
     diagLoading,
+    message,
+    messageChargement,
   } = useCollecte();
   const [elevated, setElevated] = useState<boolean | null>(null);
   const [relanceEnCours, setRelanceEnCours] = useState(false);
@@ -692,6 +694,8 @@ export default function App() {
           onDemanderExecution={demanderExecution}
           detailRef={detailRef}
           onFiltreProvider={(p) => setProvider(p)}
+          message={message}
+          messageChargement={messageChargement}
         />
       </div>
 

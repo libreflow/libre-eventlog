@@ -17,6 +17,10 @@ export function useCollecte() {
   const [selected, setSelected] = useState<CriticalEvent | null>(null);
   const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  // Message d'événement rendu dans la langue de l'OS (wevtutil
+  // RenderedXml, requête par EventRecordID + cache LRU côté backend).
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageChargement, setMessageChargement] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [avertissements, setAvertissements] = useState<string[]>([]);
@@ -71,6 +75,7 @@ export function useCollecte() {
         else {
           setSelected(null);
           setDiagnostic(null);
+          setMessage(null);
         }
       }
     } catch (e) {
@@ -82,18 +87,36 @@ export function useCollecte() {
       setAvertissements([]);
       setSelected(null);
       setDiagnostic(null);
+      setMessage(null);
     } finally {
       if (collecteSeq.current === seq) setLoading(false);
     }
   }
 
   async function selectionner(e: CriticalEvent) {
-    // Séquence : évite qu'un diagnostic obsolète écrase celui d'un
-    // événement sélectionné plus récemment (clics rapides).
+    // Séquence : évite qu'un diagnostic ou un message obsolète écrase
+    // celui d'un événement sélectionné plus récemment (clics rapides).
     const seq = ++diagSeq.current;
     setSelected(e);
     setDiagnostic(null);
     setDiagLoading(true);
+    setMessage(null);
+    setMessageChargement(true);
+    // Le message rendu est indépendant du diagnostic : les deux requêtes
+    // partent en parallèle, chacune se raccroche à la même séquence.
+    const promesseMessage = (async () => {
+      try {
+        const m = await invoke<string>("lire_message_evenement", {
+          canal: e.canal,
+          recordId: e.recordId,
+        });
+        if (diagSeq.current === seq) setMessage(m);
+      } catch {
+        /* message non disponible : les paramètres restent affichés */
+      } finally {
+        if (diagSeq.current === seq) setMessageChargement(false);
+      }
+    })();
     try {
       const d = await invoke<Diagnostic>("get_diagnostic", { event: e });
       if (diagSeq.current === seq) setDiagnostic(d);
@@ -102,6 +125,7 @@ export function useCollecte() {
     } finally {
       if (diagSeq.current === seq) setDiagLoading(false);
     }
+    await promesseMessage;
   }
 
   chargerRef.current = charger;
@@ -211,5 +235,7 @@ export function useCollecte() {
     selectionner,
     diagnostic,
     diagLoading,
+    message,
+    messageChargement,
   };
 }

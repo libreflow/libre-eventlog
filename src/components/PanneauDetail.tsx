@@ -16,6 +16,8 @@ export function PanneauDetail({
   onDemanderExecution,
   detailRef,
   onFiltreProvider,
+  message,
+  messageChargement,
 }: {
   selected: CriticalEvent | null;
   diagnostic: Diagnostic | null;
@@ -25,6 +27,8 @@ export function PanneauDetail({
   onDemanderExecution: (cmd: import("../types").CommandeFix) => void;
   detailRef: React.RefObject<HTMLElement | null>;
   onFiltreProvider: (provider: string) => void;
+  message: string | null;
+  messageChargement: boolean;
 }) {
   return (
     <aside className="detail" aria-live="polite" aria-busy={diagLoading} ref={detailRef}>
@@ -68,6 +72,20 @@ export function PanneauDetail({
               )}
             </div>
           </div>
+
+          {(message || messageChargement) && (
+            <div className="section">
+              <h3>Message</h3>
+              {messageChargement ? (
+                <div className="skeleton">
+                  <div className="skeleton-line" />
+                  <div className="skeleton-line short" />
+                </div>
+              ) : (
+                <pre className="message-rendu">{message}</pre>
+              )}
+            </div>
+          )}
 
           {selected.parametres.length > 0 && (
             <div className="section">

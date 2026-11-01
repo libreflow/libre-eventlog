@@ -1837,3 +1837,19 @@ input {
   word-break: break-word;
   color: var(--code-text);
 }
+
+/* Message d'événement rendu (wevtutil RenderedXml) — panneau détail */
+.message-rendu {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  padding: 12px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+}

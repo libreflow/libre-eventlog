@@ -12,6 +12,7 @@ mod collecte;
 mod journal;
 mod kb;
 mod materiel;
+mod messages;
 mod powershell;
 mod securite;
 mod types;
@@ -23,6 +24,7 @@ pub use collecte::*;
 pub use journal::*;
 pub use kb::*;
 pub use materiel::*;
+pub use messages::*;
 pub use powershell::*;
 pub use securite::*;
 pub use types::*;
@@ -63,7 +65,8 @@ pub fn run() {
             check_elevation,
             annuler_commande,
             lire_journal,
-            purger_journal
+            purger_journal,
+            lire_message_evenement
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Libre EventLog");

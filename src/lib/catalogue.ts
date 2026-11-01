@@ -104,3 +104,11 @@ export const COLONNES: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "eventId", label: "ID", align: "right" },
   { key: "severity", label: "Sévérité" },
 ];
+
+// Clé d'identité d'un correctif en cours : label + commande. La seule
+// chaîne de commande ne suffit pas — la base référence parfois la même
+// commande pour plusieurs événements (disk 7 et disk 11) et le spinner
+// « Exécution en cours » tournait alors sur toutes les cartes jumelles.
+export function cleCommande(cmd: CommandeFix): string {
+  return `${cmd.label}|${cmd.commande}`;
+}

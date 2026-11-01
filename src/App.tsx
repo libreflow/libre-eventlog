@@ -2,16 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  FileSearch,
   HeartPulse,
-  Inbox,
   Lock,
   Loader2,
   Moon,
-  Play,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -36,20 +30,14 @@ import { Terminal } from "./components/Terminal";
 import { ModaleConfirmation } from "./components/ModaleConfirmation";
 import { ModaleAudit } from "./components/ModaleAudit";
 import { ModaleMaintenance } from "./components/ModaleMaintenance";
+import { TableEvenements } from "./components/TableEvenements";
+import { PanneauDetail } from "./components/PanneauDetail";
 import type { TerminalEntry } from "./components/Terminal";
-import { LienExterne } from "./components/LienExterne";
 import { usePiegeFocus } from "./hooks/usePiegeFocus";
-import {
-  SEVERITES,
-  cleJourLocal,
-  formatDate,
-  lienRecherche,
-  libelleJour,
-  severityClass,
-} from "./lib/evenements";
+import { SEVERITES } from "./lib/evenements";
 import { copierTexte } from "./lib/pressepapiers";
 import { rapportMarkdown } from "./lib/rapport";
-import { COLONNES, MAJ_APPS } from "./lib/catalogue";
+import { MAJ_APPS, cleCommande } from "./lib/catalogue";
 import type { SortDir, SortKey } from "./lib/catalogue";
 
 
@@ -296,14 +284,6 @@ export default function App() {
     } finally {
       if (diagSeq.current === seq) setDiagLoading(false);
     }
-  }
-
-  // Clé d'identité d'un correctif en cours : label + commande. La seule
-  // chaîne de commande ne suffit pas — la base référence parfois la même
-  // commande pour plusieurs événements (disk 7 et disk 11) et le spinner
-  // « Exécution en cours » tournait alors sur toutes les cartes jumelles.
-  function cleCommande(cmd: CommandeFix): string {
-    return `${cmd.label}|${cmd.commande}`;
   }
 
   async function executerCommande(cmd: CommandeFix) {
@@ -868,261 +848,27 @@ export default function App() {
       )}
 
       <div className={`layout ${terminalOuvert ? "avec-terminal" : ""}`}>
-        <div
-          className="table-wrap"
-          role="region"
-          aria-label="Liste des événements"
-          onKeyDown={naviguerClavier}
-        >
-          <table className="events-table">
-            <thead>
-              <tr>
-                {COLONNES.map((col) => (
-                  <th
-                    key={col.key}
-                    scope="col"
-                    className={col.align === "right" ? "align-right" : ""}
-                    aria-sort={
-                      sortKey === col.key
-                        ? sortDir === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
-                  >
-                    <button className="sort-btn" onClick={() => trier(col.key)}>
-                      {col.label}
-                      <span className="sort-arrow" aria-hidden="true">
-                        {sortKey === col.key &&
-                          (sortDir === "asc" ? (
-                            <ChevronUp className="icon" size={13} aria-hidden="true" />
-                          ) : (
-                            <ChevronDown className="icon" size={13} aria-hidden="true" />
-                          ))}
-                      </span>
-                    </button>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtres.map((e, i) => {
-                // Regroupement par jour, uniquement dans le tri par date
-                // (le tri par défaut) : en-têtes « Aujourd'hui », « Hier »…
-                const lignes: React.ReactNode[] = [];
-                const cleJour = cleJourLocal(e.timestamp);
-                if (sortKey === "timestamp" && (i === 0 || cleJourLocal(filtres[i - 1].timestamp) !== cleJour)) {
-                  lignes.push(
-                    <tr key={`jour-${cleJour}`} className="groupe-jour">
-                      <td colSpan={5}>{libelleJour(cleJour)}</td>
-                    </tr>,
-                  );
-                }
-                lignes.push(
-                  <tr
-                    key={`${e.recordId}-${e.canal}-${e.timestamp}-${i}`}
-                    className={`${selected === e ? "selected" : ""} ${e.level === 1 ? "niveau-critique" : ""}`}
-                    tabIndex={0}
-                    onClick={() => selectionner(e)}
-                    onKeyDown={(ev) => {
-                      if (ev.key === "Enter" || ev.key === " ") {
-                        ev.preventDefault();
-                        selectionner(e);
-                      }
-                    }}
-                  >
-                    <td className="mono">{formatDate(e.timestamp)}</td>
-                    <td>{e.canal}</td>
-                    <td title={e.provider}>{e.provider}</td>
-                    <td className="mono align-right">{e.eventId}</td>
-                    <td>
-                      <span className={`badge ${severityClass(e)}`}>
-                        <span className="badge-point" aria-hidden="true" />
-                        {e.severity}
-                      </span>
-                    </td>
-                  </tr>,
-                );
-                return lignes;
-              })}
-              {loading && filtres.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="empty-state">
-                    <span className="icon-circle">
-                      <Loader2 className="icon spin" aria-hidden="true" />
-                    </span>
-                    <strong>Collecte des événements…</strong>
-                    <span>
-                      Interrogation des canaux System, Application, WHEA-Logger et
-                      Diagnostics-Performance.
-                    </span>
-                  </td>
-                </tr>
-              )}
-              {filtres.length === 0 && !loading && (
-                <tr>
-                  <td colSpan={5} className="empty-state">
-                    <span className="icon-circle">
-                      <Inbox className="icon" aria-hidden="true" />
-                    </span>
-                    <strong>
-                      {events.length === 0
-                        ? "Aucun événement collecté"
-                        : "Aucun résultat"}
-                    </strong>
-                    <span>
-                      {events.length === 0
-                        ? "Lancez « Analyser le journal » pour collecter les événements critiques et erreurs de la machine."
-                        : "Aucun événement ne correspond à ces filtres."}
-                    </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <TableEvenements
+          filtres={filtres}
+          totalEvenements={events.length}
+          selected={selected}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          loading={loading}
+          onTrier={trier}
+          onSelectionner={selectionner}
+          onNaviguerClavier={naviguerClavier}
+        />
 
-        <aside className="detail" aria-live="polite" aria-busy={diagLoading} ref={detailRef}>
-          {!selected && (
-            <div className="detail-empty">
-              <span className="icon-circle">
-                <FileSearch className="icon" aria-hidden="true" />
-              </span>
-              <p>Sélectionnez un événement pour voir son diagnostic et les correctifs exécutables.</p>
-            </div>
-          )}
-          {selected && (
-            <>
-              <div className={`detail-tete ${severityClass(selected)}`}>
-                <div className="detail-tete-titre">
-                  <h2>
-                    {selected.provider} <span className="mono">— {selected.eventId}</span>
-                  </h2>
-                  <span className={`badge ${severityClass(selected)}`}>
-                    <span className="badge-point" aria-hidden="true" />
-                    {selected.severity}
-                  </span>
-                </div>
-                <div className="detail-meta">
-                  <span className="chip mono">{formatDate(selected.timestamp)}</span>
-                  <span className="chip">{selected.canal}</span>
-                  {selected.computer && <span className="chip">{selected.computer}</span>}
-                  {selected.processId != null && (
-                    <span className="chip mono">PID {selected.processId}</span>
-                  )}
-                  {selected.recordId != null && selected.recordId > 0 && (
-                    <span className="chip mono">#{selected.recordId}</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="section">
-                <h3>Message brut</h3>
-                <pre>{selected.messageRaw || "Aucun message."}</pre>
-              </div>
-
-              <div className="section">
-                <h3>Diagnostic</h3>
-                {diagLoading && (
-                  <div className="skeleton">
-                    <div className="skeleton-line" />
-                    <div className="skeleton-line short" />
-                    <div className="skeleton-line" />
-                  </div>
-                )}
-                {!diagLoading && diagnostic && !diagnostic.fix && (
-                  <div className="fix">
-                    <p>
-                      Aucun correctif connu pour cet événement. Consultez la base
-                      Microsoft.
-                    </p>
-                    <LienExterne className="btn" href={lienRecherche(selected)}>
-                      <Search className="icon" aria-hidden="true" />
-                      Rechercher sur support.microsoft.com
-                      <span className="sr-only"> (ouvre un nouvel onglet)</span>
-                    </LienExterne>
-                  </div>
-                )}
-                {!diagLoading && diagnostic?.fix && (
-                  <div className="fix">
-                    <h4>{diagnostic.fix.titre}</h4>
-                    <p className="cause">{diagnostic.fix.cause}</p>
-                    <ol>
-                      {diagnostic.fix.etapes.map((etape, i) => (
-                        <li key={i}>{etape}</li>
-                      ))}
-                    </ol>
-                    <div className="fix-footer">
-                      <span className="badge categorie">{diagnostic.fix.categorie}</span>
-                      <LienExterne className="btn" href={lienRecherche(selected)}>
-                        <ExternalLink className="icon" aria-hidden="true" />
-                        Plus d'infos (support.microsoft.com)
-                        <span className="sr-only"> (ouvre un nouvel onglet)</span>
-                      </LienExterne>
-                    </div>
-
-                    {diagnostic.fix.commandes.length > 0 && (
-                      <div className="commandes">
-                        <h3>Correctifs exécutables</h3>
-                        {diagnostic.fix.commandes.map((cmd, i) => {
-                          const blocked = cmd.elevation && elevated === false;
-                          const running = runningCmd === cleCommande(cmd);
-                          const busy = runningCmd !== null;
-                          return (
-                            <div key={i} className={`cmd-card ${blocked ? "blocked" : ""}`}>
-                              <div className="cmd-head">
-                                <div>
-                                  <strong>{cmd.label}</strong>
-                                  {cmd.description && (
-                                    <p className="cmd-desc">{cmd.description}</p>
-                                  )}
-                                </div>
-                                <button
-                                  className="btn small"
-                                  onClick={() => demanderExecution(cmd)}
-                                  disabled={blocked || busy}
-                                  title={
-                                    blocked
-                                      ? "Nécessite de relancer l'application en administrateur"
-                                      : cmd.confirme
-                                        ? "Une confirmation sera demandée"
-                                        : "Exécuter dans la fenêtre principale"
-                                  }
-                                >
-                                  {running ? (
-                                    <Loader2 className="icon spin" aria-hidden="true" />
-                                  ) : blocked ? (
-                                    <Lock className="icon" aria-hidden="true" />
-                                  ) : (
-                                    <>
-                                      <Play className="icon" aria-hidden="true" />
-                                      Exécuter
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                              <code className="cmd-line">{cmd.commande}</code>
-                              {cmd.confirme && !blocked && (
-                                <span className="cmd-flag">
-                                  <AlertTriangle className="icon" aria-hidden="true" /> Confirmation requise
-                                </span>
-                              )}
-                              {cmd.elevation && !blocked && (
-                                <span className="cmd-flag">
-                                  <Lock className="icon" aria-hidden="true" /> Droits administrateur
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </aside>
+        <PanneauDetail
+          selected={selected}
+          diagnostic={diagnostic}
+          diagLoading={diagLoading}
+          elevated={elevated}
+          runningCmd={runningCmd}
+          onDemanderExecution={demanderExecution}
+          detailRef={detailRef}
+        />
       </div>
 
       <Terminal

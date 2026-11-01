@@ -450,6 +450,7 @@ export default function App() {
   const [hwProblemes, setHwProblemes] = useState<ProblemDevice[]>([]);
   const [hwChargement, setHwChargement] = useState(false);
   const [hwCharge, setHwCharge] = useState(false);
+  const [hwErreur, setHwErreur] = useState<string | null>(null);
   const [auditOuverte, setAuditOuverte] = useState(false);
   const [auditChargement, setAuditChargement] = useState(false);
   const [audit, setAudit] = useState<AuditSante | null>(null);
@@ -556,12 +557,23 @@ export default function App() {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== "Escape") return;
       if (confirmCmd) setConfirmCmd(null);
-      else if (majOuverte) setMajOuverte(false);
-      else setAuditOuverte(false);
+      else if (majOuverte) {
+        // Mêmes gardes que le clic sur l'overlay : pas de fermeture pendant
+        // un chargement (winget, scan Windows Update, lecture CIM).
+        if (!majChargement && !wuChargement && !hwChargement) setMajOuverte(false);
+      } else if (!auditChargement) setAuditOuverte(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmCmd, majOuverte, auditOuverte]);
+  }, [
+    confirmCmd,
+    majOuverte,
+    auditOuverte,
+    majChargement,
+    wuChargement,
+    hwChargement,
+    auditChargement,
+  ]);
 
   useEffect(() => {
     document.title = selected
@@ -638,6 +650,14 @@ export default function App() {
     }
   }
 
+  // Clé d'identité d'un correctif en cours : label + commande. La seule
+  // chaîne de commande ne suffit pas — la base référence parfois la même
+  // commande pour plusieurs événements (disk 7 et disk 11) et le spinner
+  // « Exécution en cours » tournait alors sur toutes les cartes jumelles.
+  function cleCommande(cmd: CommandeFix): string {
+    return `${cmd.label}|${cmd.commande}`;
+  }
+
   async function executerCommande(cmd: CommandeFix) {
     const id = nextId.current++;
     const time = new Date().toLocaleTimeString("fr-FR");
@@ -646,7 +666,7 @@ export default function App() {
       ...t,
       { id, label: cmd.label, commande: cmd.commande, result: null, error: null, running: true, time },
     ]);
-    setRunningCmd(cmd.commande);
+    setRunningCmd(cleCommande(cmd));
     try {
       const res = await invoke<CommandResult>("run_diagnostic_command", {
         commande: cmd.commande,
@@ -831,6 +851,7 @@ export default function App() {
 
   async function chargerMateriel() {
     setHwChargement(true);
+    setHwErreur(null);
     try {
       const [info, problemes] = await Promise.all([
         invoke<SystemInfo>("get_system_info"),
@@ -840,7 +861,9 @@ export default function App() {
       setHwProblemes(problemes);
       setHwCharge(true);
     } catch (e) {
-      setError(String(e));
+      // Erreur affichée dans l'onglet : la bannière globale est invisible
+      // derrière l'overlay de la modale ouverte.
+      setHwErreur(String(e));
     } finally {
       setHwChargement(false);
     }
@@ -1420,7 +1443,7 @@ export default function App() {
                         <h3>Correctifs exécutables</h3>
                         {diagnostic.fix.commandes.map((cmd, i) => {
                           const blocked = cmd.elevation && elevated === false;
-                          const running = runningCmd === cmd.commande;
+                          const running = runningCmd === cleCommande(cmd);
                           const busy = runningCmd !== null;
                           return (
                             <div key={i} className={`cmd-card ${blocked ? "blocked" : ""}`}>
@@ -1889,6 +1912,12 @@ export default function App() {
                 </p>
 
                 {hwChargement && <p className="maj-status"><Loader2 className="icon spin" aria-hidden="true" /> Lecture des informations matériel…</p>}
+
+                {!hwChargement && hwErreur && (
+                  <p className="modal-warn" role="alert">
+                    <AlertTriangle className="icon warn" aria-hidden="true" /> La lecture des informations matériel a échoué : {hwErreur}
+                  </p>
+                )}
 
                 {!hwChargement && hwInfo && (
                   <div className="hw-grille">

@@ -14,6 +14,7 @@
   --ok: #27c93f;
   --radius: 10px;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --ring: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent);
 }
 
 /* Thème clair : les composants reposent sur les variables ci-dessus,
@@ -47,7 +48,8 @@ body {
 }
 
 body {
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: "Inter Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   background:
     radial-gradient(1200px 500px at 80% -10%, rgba(79, 140, 255, 0.08), transparent 60%),
     var(--bg);
@@ -215,7 +217,8 @@ tr:focus-visible {
 .search-icon {
   position: absolute;
   left: 10px;
-  font-size: 0.8rem;
+  width: 14px;
+  height: 14px;
   pointer-events: none;
   opacity: 0.7;
 }
@@ -294,7 +297,7 @@ tr:focus-visible {
 .error {
   background: rgba(255, 95, 86, 0.1);
   border: 1px solid var(--danger);
-  color: #ffb3ae;
+  color: var(--danger);
   padding: 10px 14px;
   border-radius: 8px;
   font-size: 0.88rem;
@@ -778,7 +781,7 @@ tr:focus-visible {
 }
 
 .term-err {
-  color: #ffb3ae;
+  color: var(--danger);
   border-color: rgba(255, 95, 86, 0.4);
 }
 
@@ -1263,4 +1266,89 @@ tr:focus-visible {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- Système d'icônes (lucide-react) ---------- */
+
+.icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  vertical-align: -2px;
+}
+
+.icon.ok { color: var(--ok); }
+.icon.err { color: var(--danger); }
+.icon.warn { color: var(--warn); }
+.icon.muted { color: var(--muted); }
+
+.spin {
+  animation: rotation 1s linear infinite;
+}
+
+@keyframes rotation {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  padding: 6px 8px;
+}
+
+.btn-ghost:hover {
+  background: var(--surface-2);
+  border-color: var(--border-soft);
+}
+
+/* Pastille de sévérité dans les badges */
+.badge-point {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+
+/* Focus clavier visible partout (accessibilité) */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: 6px;
+}
+
+/* Barres de défilement fines et discrètes */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Transitions douces globales sur les surfaces interactives */
+.events-table tbody tr,
+.btn,
+.maj-item,
+.maj-onglet,
+.maj-correctif,
+.audit-probleme-titre {
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }

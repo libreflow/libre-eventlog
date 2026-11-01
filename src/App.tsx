@@ -1,5 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Cpu,
+  Download,
+  ExternalLink,
+  HeartPulse,
+  Lock,
+  Loader2,
+  Moon,
+  Package,
+  Play,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  ShieldOff,
+  Sun,
+  TerminalSquare,
+  Trash2,
+  Wrench,
+  X,
+  XCircle,
+} from "lucide-react";
 import type {
   AuditSante,
   CollecteResult,
@@ -92,7 +119,7 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
   {
     label: "Réinitialiser la pile réseau",
     description:
-      "réinitialise Winsock et le cache ARP — utile après une infection ou des soucis réseau. ⚠️ Redémarrage requis pour Winsock ; la connexion peut être brièvement coupée pendant l'opération",
+      "réinitialise Winsock et le cache ARP — utile après une infection ou des soucis réseau. Attention : redémarrage requis pour Winsock ; la connexion peut être brièvement coupée pendant l'opération",
     commande:
       "netsh winsock reset; netsh int ip reset; arp -d *; ipconfig /release; ipconfig /renew; ipconfig /flushdns",
     type: "action",
@@ -754,7 +781,14 @@ export default function App() {
                   : "Application non élevée : les commandes marquées 🔐 nécessitent un relancement en administrateur"
             }
           >
-            {elevated === null ? "⏳ Droits…" : elevated ? "🔐 Administrateur" : "⛔ Mode limité"}
+            {elevated === null ? (
+              <Loader2 className="icon spin" aria-hidden="true" />
+            ) : elevated ? (
+              <ShieldCheck className="icon ok" aria-hidden="true" />
+            ) : (
+              <ShieldOff className="icon muted" aria-hidden="true" />
+            )}
+            {elevated === null ? "Vérification…" : elevated ? "Administrateur" : "Mode limité"}
           </span>
           {elevated === false && (
             <button
@@ -763,15 +797,21 @@ export default function App() {
               disabled={relanceEnCours}
               title="Affiche l'invite UAC puis relance l'application avec les droits administrateur"
             >
-              {relanceEnCours ? "⏳…" : "🔐 Relancer en administrateur"}
+              {relanceEnCours ? (
+                <Loader2 className="icon spin" aria-hidden="true" />
+              ) : (
+                <ShieldCheck className="icon" aria-hidden="true" />
+              )}
+              Relancer en administrateur
             </button>
           )}
           <button
-            className="btn small"
+            className="btn small btn-ghost"
             onClick={() => setTheme((t) => (t === "sombre" ? "clair" : "sombre"))}
             title="Basculer le thème clair/sombre"
+            aria-label="Basculer le thème"
           >
-            {theme === "sombre" ? "☀️ Clair" : "🌙 Sombre"}
+            {theme === "sombre" ? <Sun className="icon" aria-hidden="true" /> : <Moon className="icon" aria-hidden="true" />}
           </button>
           <span className="stat critique">
             <strong>{nbCritiques}</strong> critique{nbCritiques > 1 ? "s" : ""}
@@ -794,7 +834,12 @@ export default function App() {
 
       <div className="toolbar">
         <button className="btn primary" onClick={() => charger()} disabled={loading}>
-          {loading ? "Chargement…" : "Analyser le journal"}
+          {loading ? (
+            <Loader2 className="icon spin" aria-hidden="true" />
+          ) : (
+            <RefreshCw className="icon" aria-hidden="true" />
+          )}
+          {loading ? "Analyse…" : "Analyser le journal"}
         </button>
         <button
           className="btn"
@@ -806,7 +851,12 @@ export default function App() {
               : "Maintenance : mise à jour des applications (winget), mises à jour Windows et pilotes, correctifs système (sfc, DISM…)"
           }
         >
-          {elevated === false ? "🔒" : "🛠"} Maintenance
+          {elevated === false ? (
+            <Lock className="icon" aria-hidden="true" />
+          ) : (
+            <Wrench className="icon" aria-hidden="true" />
+          )}
+          Maintenance
         </button>
         <button
           className="btn"
@@ -814,7 +864,8 @@ export default function App() {
           disabled={auditChargement}
           title="Collecte les événements de tous les canaux, agrège les problèmes et calcule un score de santé par catégorie"
         >
-          🩺 Audit de santé
+          <HeartPulse className="icon" aria-hidden="true" />
+          Audit de santé
         </button>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
           {canauxDisponibles.map((c) => (
@@ -872,7 +923,7 @@ export default function App() {
           <option value="30">30 min</option>
         </select>
         <div className="search">
-          <span className="search-icon" aria-hidden="true">🔍</span>
+          <Search className="search-icon" aria-hidden="true" />
           <input
             type="search"
             ref={searchRef}
@@ -883,7 +934,7 @@ export default function App() {
           />
           {recherche && (
             <button className="search-clear" onClick={() => setRecherche("")} aria-label="Effacer la recherche">
-              ✕
+              <X size={13} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -891,14 +942,17 @@ export default function App() {
 
       {error && (
         <div className="error" role="alert">
-          ⚠️ {error}
+          <AlertTriangle className="icon warn" aria-hidden="true" />
+          {error}
         </div>
       )}
 
       {avertissements.length > 0 && (
         <div className="warn-banner" role="status">
           {avertissements.map((a, i) => (
-            <p key={i}>⚠️ {a}</p>
+            <p key={i}>
+              <AlertTriangle className="icon warn" aria-hidden="true" /> {a}
+            </p>
           ))}
         </div>
       )}
@@ -924,7 +978,12 @@ export default function App() {
                     <button className="sort-btn" onClick={() => trier(col.key)}>
                       {col.label}
                       <span className="sort-arrow" aria-hidden="true">
-                        {sortKey === col.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                        {sortKey === col.key &&
+                          (sortDir === "asc" ? (
+                            <ChevronUp className="icon" size={13} aria-hidden="true" />
+                          ) : (
+                            <ChevronDown className="icon" size={13} aria-hidden="true" />
+                          ))}
                       </span>
                     </button>
                   </th>
@@ -951,7 +1010,8 @@ export default function App() {
                   <td className="mono align-right">{e.eventId}</td>
                   <td>
                     <span className={`badge ${severityClass(e)}`}>
-                      {e.severity === "Critique" ? "●" : "▲"} {e.severity}
+                      <span className="badge-point" aria-hidden="true" />
+                      {e.severity}
                     </span>
                   </td>
                 </tr>
@@ -1014,7 +1074,7 @@ export default function App() {
                 {!diagLoading && diagnostic && !diagnostic.fix && (
                   <div className="fix">
                     <p>
-                      Aucun correctif connu pour cet événément. Consultez la base
+                      Aucun correctif connu pour cet événement. Consultez la base
                       Microsoft.
                     </p>
                     <a
@@ -1023,7 +1083,8 @@ export default function App() {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      🔍 Rechercher sur support.microsoft.com
+                      <Search className="icon" aria-hidden="true" />
+                      Rechercher sur support.microsoft.com
                       <span className="sr-only"> (ouvre un nouvel onglet)</span>
                     </a>
                   </div>
@@ -1045,7 +1106,8 @@ export default function App() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        🔍 Plus d'infos (support.microsoft.com)
+                        <ExternalLink className="icon" aria-hidden="true" />
+                        Plus d'infos (support.microsoft.com)
                         <span className="sr-only"> (ouvre un nouvel onglet)</span>
                       </a>
                     </div>
@@ -1078,15 +1140,28 @@ export default function App() {
                                         : "Exécuter dans la fenêtre principale"
                                   }
                                 >
-                                  {running ? "⏳…" : blocked ? "🔒" : "▶ Exécuter"}
+                                  {running ? (
+                                    <Loader2 className="icon spin" aria-hidden="true" />
+                                  ) : blocked ? (
+                                    <Lock className="icon" aria-hidden="true" />
+                                  ) : (
+                                    <>
+                                      <Play className="icon" aria-hidden="true" />
+                                      Exécuter
+                                    </>
+                                  )}
                                 </button>
                               </div>
                               <code className="cmd-line">{cmd.commande}</code>
                               {cmd.confirme && !blocked && (
-                                <span className="cmd-flag">⚠️ Confirmation requise</span>
+                                <span className="cmd-flag">
+                                  <AlertTriangle className="icon" aria-hidden="true" /> Confirmation requise
+                                </span>
                               )}
                               {cmd.elevation && !blocked && (
-                                <span className="cmd-flag">🔐 Droits administrateur</span>
+                                <span className="cmd-flag">
+                                  <Lock className="icon" aria-hidden="true" /> Droits administrateur
+                                </span>
                               )}
                             </div>
                           );
@@ -1104,17 +1179,22 @@ export default function App() {
       {terminalOuvert && (
         <div className="terminal" role="region" aria-label="Terminal des commandes exécutées">
           <div className="terminal-head">
-            <span className="terminal-title">⌨ Terminal — exécution PowerShell</span>
+            <span className="terminal-title">
+              <TerminalSquare className="icon" aria-hidden="true" />
+              Terminal — exécution PowerShell
+            </span>
             <div className="terminal-actions">
               <button
                 className="btn small"
                 onClick={() => setTerminal([])}
                 disabled={terminal.length === 0}
               >
+                <Trash2 className="icon" aria-hidden="true" />
                 Effacer
               </button>
               <button className="btn small" onClick={() => setTerminalOuvert(false)}>
-                ✕ Réduire
+                <X className="icon" aria-hidden="true" />
+                Réduire
               </button>
             </div>
           </div>
@@ -1134,14 +1214,23 @@ export default function App() {
                   <span className="term-label">{entry.label}</span>
                 </div>
                 <code className="cmd-line">{entry.commande}</code>
-                {entry.running && <p className="term-status">⏳ Exécution en cours…</p>}
+                {entry.running && (
+                  <p className="term-status">
+                    <Loader2 className="icon spin" aria-hidden="true" /> Exécution en cours…
+                  </p>
+                )}
                 {entry.error && <pre className="term-err">{entry.error}</pre>}
                 {res && (
                   <>
                     {res.stdout && <pre className="term-out">{res.stdout}</pre>}
                     {res.stderr && <pre className="term-err">{res.stderr}</pre>}
                     <p className="term-status">
-                      {res.exitCode === 0 ? "✅" : "❌"} Terminé en {res.durationMs} ms — code{" "}
+                      {res.exitCode === 0 ? (
+                        <CheckCircle2 className="icon ok" aria-hidden="true" />
+                      ) : (
+                        <XCircle className="icon err" aria-hidden="true" />
+                      )}
+                      Terminé en {res.durationMs} ms — code{" "}
                       {res.exitCode ?? "?"}
                       <button
                         className="btn small copier-btn"
@@ -1150,7 +1239,8 @@ export default function App() {
                         }
                         title="Copier la commande et sa sortie"
                       >
-                        📋 Copier
+                        <Copy className="icon" aria-hidden="true" />
+                        Copier
                       </button>
                     </p>
                   </>
@@ -1164,7 +1254,7 @@ export default function App() {
 
       {!terminalOuvert && terminal.length > 0 && (
         <button className="btn terminal-restore" onClick={() => setTerminalOuvert(true)}>
-          ⌨ Terminal ({terminal.length})
+          <TerminalSquare className="icon" aria-hidden="true" /> Terminal ({terminal.length})
         </button>
       )}
 
@@ -1177,10 +1267,14 @@ export default function App() {
           onClick={() => !auditChargement && setAuditOuverte(false)}
         >
           <div className="modal modal-maj" onClick={(e) => e.stopPropagation()}>
-            <h3 id="audit-title">🩺 Audit de santé</h3>
+            <h3 id="audit-title">
+              <HeartPulse className="icon" aria-hidden="true" /> Audit de santé
+            </h3>
 
             {auditChargement && (
-              <p className="maj-status">⏳ Collecte et agrégation des événements…</p>
+              <p className="maj-status">
+                <Loader2 className="icon spin" aria-hidden="true" /> Collecte et agrégation des événements…
+              </p>
             )}
 
             {!auditChargement && audit && (
@@ -1270,10 +1364,18 @@ export default function App() {
                     Fermer
                   </button>
                   <button className="btn" onClick={copierRapport}>
-                    {rapportCopie ? "✅ Copié !" : "📋 Copier le rapport"}
+                    {rapportCopie ? (
+                      <>
+                        <Check className="icon ok" aria-hidden="true" /> Copié !
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="icon" aria-hidden="true" /> Copier le rapport
+                      </>
+                    )}
                   </button>
                   <button className="btn primary" onClick={telechargerRapport}>
-                    💾 Télécharger (.md)
+                    <Download className="icon" aria-hidden="true" /> Télécharger (.md)
                   </button>
                 </div>
               </>
@@ -1291,7 +1393,7 @@ export default function App() {
           onClick={() => !majChargement && setMajOuverte(false)}
         >
           <div className="modal modal-maj" onClick={(e) => e.stopPropagation()}>
-            <h3 id="maj-title">🛠 Maintenance</h3>
+            <h3 id="maj-title"><Wrench className="icon" aria-hidden="true" /> Maintenance</h3>
 
             <div className="maj-onglets" role="tablist" aria-label="Sections de maintenance">
               {(
@@ -1321,17 +1423,17 @@ export default function App() {
               <>
                 <p className="cmd-desc">{MAJ_APPS.description}</p>
                 <p className="cmd-desc">
-                  ⚠️ Fermez vos applications avant de les mettre à jour : une app en
+                  <AlertTriangle className="icon warn" aria-hidden="true" /> Fermez vos applications avant de les mettre à jour : une app en
                   cours d'exécution peut voir sa mise à jour figée (cas Terminal/MSIX)
                   ou faire échouer l'installateur.
                 </p>
 
                 {majChargement && (
-                  <p className="maj-status">⏳ Recherche des mises à jour disponibles…</p>
+                  <p className="maj-status"><Loader2 className="icon spin" aria-hidden="true" /> Recherche des mises à jour disponibles…</p>
                 )}
 
                 {!majChargement && majPaquets.length === 0 && (
-                  <p className="maj-status">✅ Aucune mise à jour d'application disponible. Tout est à jour !</p>
+                  <p className="maj-status"><CheckCircle2 className="icon ok" aria-hidden="true" /> Aucune mise à jour d'application disponible. Tout est à jour !</p>
                 )}
 
                 {!majChargement && majPaquets.length > 0 && (
@@ -1373,7 +1475,7 @@ export default function App() {
                     disabled={majChargement || majSelection.size === 0 || runningCmd !== null}
                     onClick={() => executerMajApps([...majSelection])}
                   >
-                    ⬆ Mettre à jour ({majSelection.size})
+                    <Package className="icon" aria-hidden="true" /> Mettre à jour ({majSelection.size})
                   </button>
                 </div>
               </>
@@ -1384,11 +1486,11 @@ export default function App() {
                 <p className="cmd-desc">
                   Mises à jour Windows et pilotes via l'agent Windows Update (WSUS/Windows Update
                   configuré sur la machine). Le scan peut prendre plusieurs minutes ; les pilotes
-                  sont marqués 🔧.
+                  sont marqués d'une clé.
                 </p>
 
                 {wuChargement && (
-                  <p className="maj-status">⏳ Recherche des mises à jour Windows et pilotes…</p>
+                  <p className="maj-status"><Loader2 className="icon spin" aria-hidden="true" /> Recherche des mises à jour Windows et pilotes…</p>
                 )}
 
                 {!wuChargement && !wuScanFait && (
@@ -1398,7 +1500,7 @@ export default function App() {
                 )}
 
                 {!wuChargement && wuScanFait && wuPaquets.length === 0 && (
-                  <p className="maj-status">✅ Aucune mise à jour Windows ni pilote en attente.</p>
+                  <p className="maj-status"><CheckCircle2 className="icon ok" aria-hidden="true" /> Aucune mise à jour Windows ni pilote en attente.</p>
                 )}
 
                 {!wuChargement && wuPaquets.length > 0 && (
@@ -1421,7 +1523,7 @@ export default function App() {
                           onChange={() => toggleWu(u.updateId)}
                         />
                         <span className="maj-nom" title={u.title}>
-                          {u.kind === "Driver" ? "🔧 " : ""}
+                          {u.kind === "Driver" ? <Wrench className="icon" size={12} aria-hidden="true" /> : null}
                           {u.title}
                         </span>
                         <span className="maj-versions mono">{u.sizeMb.toFixed(1)} Mo</span>
@@ -1435,14 +1537,14 @@ export default function App() {
                     Fermer
                   </button>
                   <button className="btn" onClick={chargerWu} disabled={wuChargement || runningCmd !== null}>
-                    🔄 Rechercher
+                    <RefreshCw className="icon" aria-hidden="true" /> Rechercher
                   </button>
                   <button
                     className="btn primary"
                     disabled={wuChargement || wuSelection.size === 0 || runningCmd !== null}
                     onClick={() => executerWuInstall([...wuSelection])}
                   >
-                    ⬇ Installer ({wuSelection.size})
+                    <Download className="icon" aria-hidden="true" /> Installer ({wuSelection.size})
                   </button>
                 </div>
               </>
@@ -1451,13 +1553,14 @@ export default function App() {
             {majOnglet === "bios" && (
               <>
                 <p className="cmd-desc">
+                  <Cpu className="icon" aria-hidden="true" />
                   Informations matériel de cette machine et liens vers le support officiel du
                   fabricant. Il n'existe pas d'API universelle de mise à jour BIOS : les mises à
                   jour de firmware passent par Windows Update (onglet « Windows &amp; pilotes »)
                   sur les machines récentes, sinon par le site ou l'outil officiel du fabricant.
                 </p>
 
-                {hwChargement && <p className="maj-status">⏳ Lecture des informations matériel…</p>}
+                {hwChargement && <p className="maj-status"><Loader2 className="icon spin" aria-hidden="true" /> Lecture des informations matériel…</p>}
 
                 {!hwChargement && hwInfo && (
                   <div className="hw-grille">
@@ -1495,7 +1598,7 @@ export default function App() {
                         target="_blank"
                         rel="noreferrer"
                       >
-                        🔗 {fabricantTrouve(hwInfo.manufacturer)!.nom}
+                        <ExternalLink className="icon" aria-hidden="true" /> {fabricantTrouve(hwInfo.manufacturer)!.nom}
                         <span className="sr-only"> (ouvre un nouvel onglet)</span>
                       </a>
                     ) : (
@@ -1509,18 +1612,18 @@ export default function App() {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      🔍 Rechercher mises à jour BIOS/pilotes
+                      <Search className="icon" aria-hidden="true" /> Rechercher mises à jour BIOS/pilotes
                       <span className="sr-only"> (ouvre un nouvel onglet)</span>
                     </a>
                     <button className="btn" onClick={chargerMateriel} disabled={hwChargement}>
-                      🔄 Actualiser
+                      <RefreshCw className="icon" aria-hidden="true" /> Actualiser
                     </button>
                   </div>
                 )}
 
                 {!hwChargement && hwInfo && fabricantTrouve(hwInfo.manufacturer)?.outil && (
                   <p className="cmd-desc">
-                    💡 Outil officiel du fabricant (mises à jour pilotes + BIOS) :{" "}
+                    Outil officiel du fabricant (mises à jour pilotes + BIOS) :{" "}
                     {fabricantTrouve(hwInfo.manufacturer)!.outil}. Il est installable depuis
                     l'onglet Applications s'il est disponible via winget.
                   </p>
@@ -1534,7 +1637,7 @@ export default function App() {
                       </strong>
                     </div>
                     {hwProblemes.length === 0 && (
-                      <p className="maj-status">✅ Tous les périphériques ont un pilote en état de marche.</p>
+                      <p className="maj-status"><CheckCircle2 className="icon ok" aria-hidden="true" /> Tous les périphériques ont un pilote en état de marche.</p>
                     )}
                     {hwProblemes.map((p) => (
                       <div key={p.instanceId} className="maj-item hw-probleme">
@@ -1588,7 +1691,7 @@ export default function App() {
                                 : "Exécuter dans la fenêtre principale"
                           }
                         >
-                          {blocked ? "🔒" : "▶ Exécuter"}
+                          blocked ? <Lock className="icon" aria-hidden="true" /> : (<><Play className="icon" aria-hidden="true" /> Exécuter</>)
                         </button>
                       </div>
                     );
@@ -1615,7 +1718,7 @@ export default function App() {
           onClick={() => setConfirmCmd(null)}
         >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 id="confirm-title">⚠️ Confirmer l'exécution</h3>
+            <h3 id="confirm-title"><AlertTriangle className="icon warn" aria-hidden="true" /> Confirmer l'exécution</h3>
             <p>
               Vous êtes sur le point d'exécuter la commande suivante sur ce système :
             </p>
@@ -1641,7 +1744,8 @@ export default function App() {
                   executerCommande(cmd);
                 }}
               >
-                ▶ Exécuter
+                <Play className="icon" aria-hidden="true" />
+                Exécuter
               </button>
             </div>
           </div>

@@ -1609,6 +1609,186 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    // Contrat de sérialisation Rust -> TypeScript : le frontend (src/types.ts)
+    // attend exactement ces clés camelCase. Ce test verrouille le contrat :
+    // tout renommage de champ doit passer par ici ET par une mise à jour du
+    // frontend, sinon le champ devient `undefined` au runtime sans erreur tsc.
+    #[test]
+    fn contrat_serialisation_frontend() {
+        fn cles(v: serde_json::Value) -> Vec<String> {
+            v.as_object()
+                .unwrap()
+                .keys()
+                .map(|k| k.to_string())
+                .collect()
+        }
+
+        let event = serde_json::to_value(CriticalEvent {
+            timestamp: "t".into(),
+            canal: "c".into(),
+            provider: "p".into(),
+            event_id: 7,
+            level: 2,
+            severity: "Erreur".into(),
+            message_raw: "m".into(),
+            process_id: None,
+            thread_id: None,
+            computer: "PC".into(),
+            record_id: 42,
+        })
+        .unwrap();
+        assert_eq!(
+            cles(event),
+            vec![
+                "timestamp",
+                "canal",
+                "provider",
+                "eventId",
+                "level",
+                "severity",
+                "messageRaw",
+                "processId",
+                "threadId",
+                "computer",
+                "recordId",
+            ]
+        );
+
+        assert_eq!(
+            cles(
+                serde_json::to_value(CommandResult {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                    duration_ms: 5,
+                    elevated: false,
+                })
+                .unwrap()
+            ),
+            vec!["stdout", "stderr", "exitCode", "durationMs", "elevated"]
+        );
+
+        assert_eq!(
+            cles(
+                serde_json::to_value(WingetPackage {
+                    name: "n".into(),
+                    id: "i".into(),
+                    version: "1".into(),
+                    available: "2".into(),
+                })
+                .unwrap()
+            ),
+            vec!["name", "id", "version", "available"]
+        );
+
+        assert_eq!(
+            cles(
+                serde_json::to_value(WinUpdate {
+                    update_id: "u".into(),
+                    title: "t".into(),
+                    kind: "Driver".into(),
+                    size_mb: 1.5,
+                })
+                .unwrap()
+            ),
+            vec!["updateId", "title", "kind", "sizeMb"]
+        );
+
+        assert_eq!(
+            cles(
+                serde_json::to_value(SystemInfo {
+                    manufacturer: "m".into(),
+                    model: "m".into(),
+                    bios_version: "b".into(),
+                    bios_date: "d".into(),
+                    serial: "s".into(),
+                })
+                .unwrap()
+            ),
+            vec!["manufacturer", "model", "biosVersion", "biosDate", "serial"]
+        );
+
+        assert_eq!(
+            cles(
+                serde_json::to_value(ProblemDevice {
+                    name: "n".into(),
+                    instance_id: "i".into(),
+                    problem_code: "28".into(),
+                    status: "Error".into(),
+                })
+                .unwrap()
+            ),
+            vec!["name", "instanceId", "problemCode", "status"]
+        );
+
+        assert_eq!(
+            cles(
+                serde_json::to_value(AuditSante {
+                    global: 50,
+                    categories: vec![],
+                    problemes: vec![],
+                    total_evenements: 0,
+                    genere_le: "d".into(),
+                })
+                .unwrap()
+            ),
+            vec![
+                "global",
+                "categories",
+                "problemes",
+                "totalEvenements",
+                "genereLe"
+            ]
+        );
+
+        assert_eq!(
+            cles(
+                serde_json::to_value(ProblemAgrege {
+                    provider: "p".into(),
+                    event_id: 7,
+                    level: 2,
+                    count: 3,
+                    titre: "t".into(),
+                    categorie: "c".into(),
+                    etapes: vec![],
+                })
+                .unwrap()
+            ),
+            vec![
+                "provider",
+                "eventId",
+                "level",
+                "count",
+                "titre",
+                "categorie",
+                "etapes"
+            ]
+        );
+
+        // CommandeFix : timeoutSecs transporté (ou omis si None)
+        let cmd = CommandeFix {
+            label: "l".into(),
+            description: String::new(),
+            commande: "c".into(),
+            r#type: "action".into(),
+            elevation: false,
+            confirme: false,
+            timeout_secs: Some(900),
+        };
+        let cmd_v = serde_json::to_value(cmd.clone()).unwrap();
+        assert_eq!(cmd_v["timeoutSecs"], serde_json::json!(900));
+        let sans_timeout = serde_json::to_value(CommandeFix {
+            timeout_secs: None,
+            ..cmd
+        })
+        .unwrap();
+        assert!(sans_timeout
+            .as_object()
+            .unwrap()
+            .get("timeoutSecs")
+            .is_none());
+    }
+
     // Sortie réelle de : wevtutil qe System /q:... /c:1 /rd:true /f:XML
     const SAMPLE_XML: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Volsnap' Guid='{cb017cd2-1f37-4e65-82bc-3e91f6a37559}' EventSourceName='volsnap'/><EventID Qualifiers='49158'>25</EventID><Version>0</Version><Level>2</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2026-10-31T23:41:02.1836450Z'/><EventRecordID>14312</EventRecordID><Correlation/><Execution ProcessID='4' ThreadID='7028'/><Channel>System</Channel><Computer>FSOCIETY</Computer><Security/></System><EventData><Data Name='DeviceName'>\Device\HarddiskVolumeShadowCopy5</Data><Data Name='VolumeName'>C:</Data><Data Name='NTSTATUS'>00000000</Data></EventData></Event>"#;
 

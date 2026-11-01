@@ -434,6 +434,73 @@ const PS_DENYLIST: &[&str] = &[
     "reg delete",
 ];
 
+// Liste blanche (deny-by-default) : chaque segment d'une commande (séparé
+// par |, ; ou retour ligne) doit commencer par un exécutable autorisé ou
+// un cmdlet dont le verbe est autorisé. La denylist reste en second filet.
+const EXE_AUTORISES: &[&str] = &[
+    "sfc", "dism", "chkdsk", "ipconfig", "netsh", "powercfg", "winget",
+    "wevtutil", "whoami", "nslookup", "arp", "mdsched", "cleanmgr", "ver",
+];
+const VERBES_CMDLETS: &[&str] = &[
+    "get", "show", "test", "measure", "repair", "resolve", "select",
+    "where", "sort", "group", "format", "compare", "find", "read",
+];
+
+fn segment_autorise(segment: &str) -> bool {
+    let premier = segment
+        .trim_start()
+        .split(|c: char| c.is_whitespace())
+        .next()
+        .unwrap_or("");
+    if premier.is_empty() {
+        return true; // segment vide (;;; consécutifs)
+    }
+    let lower = premier.to_lowercase();
+    if EXE_AUTORISES.contains(&lower.as_str()) {
+        return true;
+    }
+    if let Some((verbe, _)) = lower.split_once('-') {
+        return VERBES_CMDLETS.contains(&verbe);
+    }
+    false
+}
+
+// Découpe une ligne PowerShell en segments de commande (séparateurs | ; et
+// retours ligne) en respectant la syntaxe : les séparateurs situés dans des
+// guillemets, des parenthèses ou des accolades (hashtable @{...}, bloc
+// {...}) ne comptent pas.
+fn segments_powershell(cmd: &str) -> Vec<String> {
+    let mut segments = vec![String::new()];
+    let mut profondeur = 0i32;
+    let mut guillemet: Option<char> = None;
+    for c in cmd.chars() {
+        if let Some(q) = guillemet {
+            segments.last_mut().unwrap().push(c);
+            if c == q {
+                guillemet = None;
+            }
+            continue;
+        }
+        match c {
+            '\'' | '"' => {
+                guillemet = Some(c);
+                segments.last_mut().unwrap().push(c);
+            }
+            '(' | '{' => {
+                profondeur += 1;
+                segments.last_mut().unwrap().push(c);
+            }
+            ')' | '}' => {
+                profondeur -= 1;
+                segments.last_mut().unwrap().push(c);
+            }
+            ';' | '|' | '\n' if profondeur <= 0 => segments.push(String::new()),
+            _ => segments.last_mut().unwrap().push(c),
+        }
+    }
+    segments
+}
+
 fn commande_autorisee(cmd: &str) -> Result<(), String> {
     let lower = cmd.to_lowercase();
     for mot in PS_DENYLIST {
@@ -441,6 +508,14 @@ fn commande_autorisee(cmd: &str) -> Result<(), String> {
             return Err(format!(
                 "Commande refusée (opération potentiellement destructive détectée : {}).",
                 mot
+            ));
+        }
+    }
+    for segment in segments_powershell(cmd) {
+        if !segment_autorise(&segment) {
+            return Err(format!(
+                "Commande refusée : « {} » ne commence pas par un exécutable ou cmdlet autorisé (liste blanche).",
+                segment.trim()
             ));
         }
     }
@@ -1595,6 +1670,33 @@ mod tests {
         assert!(commande_autorisee(r"Remove-Item C:\Windows\Temp\x").is_err());
         assert!(commande_autorisee(r"REG DELETE HKLM\Software\X /f").is_err());
         assert!(commande_autorisee(r"cipher /w:C:\").is_err());
+    }
+
+    // Liste blanche : deny-by-default pour tout exécutable/cmdlet inconnu.
+    #[test]
+    fn liste_blanche_bloque_l_inconnu() {
+        // exécutables et cmdlets autorisés
+        assert!(commande_autorisee("sfc /scannow").is_ok());
+        assert!(commande_autorisee("DISM /Online /Cleanup-Image /CheckHealth").is_ok());
+        assert!(commande_autorisee("netsh winsock reset; arp -d *").is_ok());
+        assert!(commande_autorisee(
+            "Get-ChildItem 'HKLM:\\SOFTWARE' -Recurse | Get-ItemProperty | Format-List"
+        )
+        .is_ok());
+        // hashtable avec ';' : les séparateurs internes ne coupent pas
+        assert!(commande_autorisee(
+            "Get-WinEvent -FilterHashtable @{LogName='System'; Id=41} -MaxEvents 5 | Format-Table"
+        )
+        .is_ok());
+        // tout le reste est refusé
+        assert!(commande_autorisee("Start-Process calc.exe").is_err());
+        assert!(commande_autorisee("cmd /c dir").is_err());
+        assert!(commande_autorisee("powershell -enc AAAA").is_err());
+        assert!(commande_autorisee("Invoke-WebRequest http://x").is_err());
+        assert!(commande_autorisee("curl http://x").is_err());
+        assert!(commande_autorisee("Set-MpPreference -DisableRealtime 1").is_err());
+        // y compris dans un segment de pipeline
+        assert!(commande_autorisee("Get-Process | Out-File x; Start-Process calc").is_err());
     }
 
     // Intégration : exécute le vrai wevtutil avec les arguments de

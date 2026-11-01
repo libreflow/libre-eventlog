@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  CollecteResult,
   CommandResult,
   CommandeFix,
   CriticalEvent,
@@ -11,8 +12,9 @@ import type {
   WingetPackage,
 } from "./types";
 
-const CANAUX = ["Tous", "System", "Application"] as const;
-const SEVERITES = ["Toutes", "Critique", "Erreur"] as const;
+// Canaux dérivés des événements collectés (System, Application, Security,
+// WHEA-Logger, Diagnostics-Performance…).
+const SEVERITES = ["Toutes", "Critique", "Erreur", "Avertissement", "Info"] as const;
 
 // Maintenance intégrée : sélection des applications à mettre à jour via
 // winget, purge des installateurs résiduels et détection des anciennes
@@ -185,7 +187,25 @@ function lienRecherche(e: CriticalEvent): string {
 }
 
 function severityClass(e: CriticalEvent): string {
-  return e.level === 1 ? "critique" : "erreur";
+  if (e.level === 1) return "critique";
+  if (e.level === 2) return "erreur";
+  if (e.level === 3) return "avertissement";
+  return "info";
+}
+
+// Copie dans le presse-papiers avec repli (execCommand) si l'API Clipboard
+// n'est pas disponible dans le webview.
+async function copierTexte(texte: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(texte);
+  } catch {
+    const zone = document.createElement("textarea");
+    zone.value = texte;
+    document.body.appendChild(zone);
+    zone.select();
+    document.execCommand("copy");
+    zone.remove();
+  }
 }
 
 export default function App() {
@@ -195,6 +215,10 @@ export default function App() {
   const [diagLoading, setDiagLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [avertissements, setAvertissements] = useState<string[]>([]);
+  const [limite, setLimite] = useState<string>("50");
+  const [inclureAvert, setInclureAvert] = useState(false);
+  const [relanceEnCours, setRelanceEnCours] = useState(false);
   const [canal, setCanal] = useState<string>("Tous");
   const [severite, setSeverite] = useState<string>("Toutes");
   const [recherche, setRecherche] = useState("");
@@ -253,12 +277,16 @@ export default function App() {
     }
   }, [terminal]);
 
-  async function charger() {
+  async function charger(overLimite?: string, overAvert?: boolean) {
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<CriticalEvent[]>("get_critical_events");
-      setEvents(result);
+      const result = await invoke<CollecteResult>("get_critical_events", {
+        limit: Number(overLimite ?? limite),
+        inclureAvertissements: overAvert ?? inclureAvert,
+      });
+      setEvents(result.events);
+      setAvertissements(result.avertissements);
       setSelected(null);
       setDiagnostic(null);
     } catch (e) {
@@ -461,6 +489,19 @@ export default function App() {
     }
   }
 
+  async function relancerAdmin() {
+    setRelanceEnCours(true);
+    try {
+      await invoke("relancer_admin");
+      // L'instance élevée démarre : on ferme cette instance.
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().close();
+    } catch (e) {
+      setError(String(e));
+      setRelanceEnCours(false);
+    }
+  }
+
   async function chargerMateriel() {
     setHwChargement(true);
     try {
@@ -477,6 +518,11 @@ export default function App() {
       setHwChargement(false);
     }
   }
+
+  const canauxDisponibles = useMemo(
+    () => ["Tous", ...Array.from(new Set(events.map((e) => e.canal)))],
+    [events],
+  );
 
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase();
@@ -547,6 +593,16 @@ export default function App() {
           >
             {elevated === null ? "⏳ Droits…" : elevated ? "🔐 Administrateur" : "⛔ Mode limité"}
           </span>
+          {elevated === false && (
+            <button
+              className="btn small"
+              onClick={relancerAdmin}
+              disabled={relanceEnCours}
+              title="Affiche l'invite UAC puis relance l'application avec les droits administrateur"
+            >
+              {relanceEnCours ? "⏳…" : "🔐 Relancer en administrateur"}
+            </button>
+          )}
           <span className="stat critique">
             <strong>{nbCritiques}</strong> critique{nbCritiques > 1 ? "s" : ""}
           </span>
@@ -562,7 +618,7 @@ export default function App() {
       </header>
 
       <div className="toolbar">
-        <button className="btn primary" onClick={charger} disabled={loading}>
+        <button className="btn primary" onClick={() => charger()} disabled={loading}>
           {loading ? "Chargement…" : "Analyser le journal"}
         </button>
         <button
@@ -578,7 +634,7 @@ export default function App() {
           {elevated === false ? "🔒" : "🛠"} Maintenance
         </button>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
-          {CANAUX.map((c) => (
+          {canauxDisponibles.map((c) => (
             <option key={c}>{c}</option>
           ))}
         </select>
@@ -596,6 +652,30 @@ export default function App() {
           <option value="24">Dernières 24 h</option>
           <option value="168">7 derniers jours</option>
           <option value="0">Tout l'historique</option>
+        </select>
+        <select
+          value={inclureAvert ? "3" : "2"}
+          onChange={(e) => {
+            setInclureAvert(e.target.value === "3");
+            charger(undefined, e.target.value === "3");
+          }}
+          aria-label="Niveaux de sévérité collectés"
+          title="Les avertissements (niveau 3) sont ignorés par défaut pour se concentrer sur les vrais problèmes"
+        >
+          <option value="2">Critiques + erreurs</option>
+          <option value="3">+ Avertissements</option>
+        </select>
+        <select
+          value={limite}
+          onChange={(e) => {
+            setLimite(e.target.value);
+            charger(e.target.value);
+          }}
+          aria-label="Limite d'événements par canal"
+        >
+          <option value="50">50 / canal</option>
+          <option value="200">200 / canal</option>
+          <option value="500">500 / canal</option>
         </select>
         <div className="search">
           <span className="search-icon" aria-hidden="true">🔍</span>
@@ -617,6 +697,14 @@ export default function App() {
       {error && (
         <div className="error" role="alert">
           ⚠️ {error}
+        </div>
+      )}
+
+      {avertissements.length > 0 && (
+        <div className="warn-banner" role="status">
+          {avertissements.map((a, i) => (
+            <p key={i}>⚠️ {a}</p>
+          ))}
         </div>
       )}
 
@@ -702,6 +790,17 @@ export default function App() {
                 {formatDate(selected.timestamp)} · {selected.canal} ·{" "}
                 <span className={`badge ${severityClass(selected)}`}>{selected.severity}</span>
               </p>
+              {(selected.computer || selected.processId || selected.recordId) && (
+                <p className="meta muted">
+                  {selected.computer && <span>Machine : {selected.computer}</span>}
+                  {selected.processId != null && (
+                    <span> · PID : <span className="mono">{selected.processId}</span></span>
+                  )}
+                  {selected.recordId != null && selected.recordId > 0 && (
+                    <span> · Enregistrement : <span className="mono">#{selected.recordId}</span></span>
+                  )}
+                </p>
+              )}
 
               <div className="section">
                 <h3>Message brut</h3>
@@ -831,7 +930,9 @@ export default function App() {
                 sans ouvrir de fenêtre externe.
               </p>
             )}
-            {terminal.map((entry) => (
+            {terminal.map((entry) => {
+              const res = entry.result;
+              return (
               <div key={entry.id} className="term-entry">
                 <div className="term-cmd-line">
                   <span className="term-time">{entry.time}</span>
@@ -840,22 +941,28 @@ export default function App() {
                 <code className="cmd-line">{entry.commande}</code>
                 {entry.running && <p className="term-status">⏳ Exécution en cours…</p>}
                 {entry.error && <pre className="term-err">{entry.error}</pre>}
-                {entry.result && (
+                {res && (
                   <>
-                    {entry.result.stdout && (
-                      <pre className="term-out">{entry.result.stdout}</pre>
-                    )}
-                    {entry.result.stderr && (
-                      <pre className="term-err">{entry.result.stderr}</pre>
-                    )}
+                    {res.stdout && <pre className="term-out">{res.stdout}</pre>}
+                    {res.stderr && <pre className="term-err">{res.stderr}</pre>}
                     <p className="term-status">
-                      {entry.result.exitCode === 0 ? "✅" : "❌"} Terminé en{" "}
-                      {entry.result.durationMs} ms — code {entry.result.exitCode ?? "?"}
+                      {res.exitCode === 0 ? "✅" : "❌"} Terminé en {res.durationMs} ms — code{" "}
+                      {res.exitCode ?? "?"}
+                      <button
+                        className="btn small copier-btn"
+                        onClick={() =>
+                          copierTexte(`${entry.commande}\n${res.stdout}\n${res.stderr}`)
+                        }
+                        title="Copier la commande et sa sortie"
+                      >
+                        📋 Copier
+                      </button>
                     </p>
                   </>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -904,6 +1011,11 @@ export default function App() {
             {majOnglet === "apps" && (
               <>
                 <p className="cmd-desc">{MAJ_APPS.description}</p>
+                <p className="cmd-desc">
+                  ⚠️ Fermez vos applications avant de les mettre à jour : une app en
+                  cours d'exécution peut voir sa mise à jour figée (cas Terminal/MSIX)
+                  ou faire échouer l'installateur.
+                </p>
 
                 {majChargement && (
                   <p className="maj-status">⏳ Recherche des mises à jour disponibles…</p>

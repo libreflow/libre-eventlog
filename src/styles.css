@@ -395,6 +395,39 @@ tr:focus-visible {
   border: 1px solid rgba(255, 189, 46, 0.3);
 }
 
+.badge.avertissement {
+  background: rgba(79, 140, 255, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(79, 140, 255, 0.3);
+}
+
+.badge.info {
+  background: var(--surface-3);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+/* Bandeau d'avertissements de collecte (canaux ignorés, etc.) */
+.warn-banner {
+  background: rgba(255, 189, 46, 0.08);
+  border: 1px solid rgba(255, 189, 46, 0.25);
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin: 8px 16px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.warn-banner p {
+  margin: 2px 0;
+}
+
+.copier-btn {
+  margin-left: 10px;
+  padding: 1px 8px;
+  font-size: 0.72rem;
+}
+
 .badge.categorie {
   background: var(--accent-soft);
   color: var(--accent);

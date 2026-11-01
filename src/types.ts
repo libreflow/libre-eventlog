@@ -6,6 +6,15 @@ export interface CriticalEvent {
   level: number;
   severity: string;
   messageRaw: string;
+  processId?: number | null;
+  threadId?: number | null;
+  computer?: string;
+  recordId?: number;
+}
+
+export interface CollecteResult {
+  events: CriticalEvent[];
+  avertissements: string[];
 }
 
 export interface CommandeFix {

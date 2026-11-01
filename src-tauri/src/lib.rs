@@ -12,6 +12,21 @@ pub struct CriticalEvent {
     pub level: u8,
     pub severity: String,
     pub message_raw: String,
+    #[serde(default)]
+    pub process_id: Option<u32>,
+    #[serde(default)]
+    pub thread_id: Option<u32>,
+    #[serde(default)]
+    pub computer: String,
+    #[serde(default)]
+    pub record_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollecteResult {
+    pub events: Vec<CriticalEvent>,
+    pub avertissements: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +127,8 @@ fn severity_label(level: u8) -> String {
     match level {
         1 => "Critique".to_string(),
         2 => "Erreur".to_string(),
+        3 => "Avertissement".to_string(),
+        0 => "Info".to_string(),
         _ => "Inconnu".to_string(),
     }
 }
@@ -121,30 +138,71 @@ fn severity_label(level: u8) -> String {
 // bloquant à `spawn_blocking` pour ne jamais geler l'interface.
 
 #[tauri::command]
-async fn get_critical_events() -> Result<Vec<CriticalEvent>, String> {
-    tauri::async_runtime::spawn_blocking(collecter_evenements)
-        .await
-        .map_err(|e| format!("La collecte des événements a échoué : {}", e))?
+async fn get_critical_events(
+    limit: Option<u32>,
+    inclure_avertissements: Option<bool>,
+) -> Result<CollecteResult, String> {
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        collecter_evenements(limit.unwrap_or(50).min(2000), inclure_avertissements.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("La collecte des événements a échoué : {}", e))?;
+    Ok(res)
 }
 
-fn collecter_evenements() -> Result<Vec<CriticalEvent>, String> {
-    let mut events: Vec<CriticalEvent> = Vec::new();
-    for canal in ["System", "Application"] {
-        events.extend(query_canal(canal)?);
+fn collecter_evenements(limit: u32, avert: bool) -> CollecteResult {
+    let elevated = is_elevated();
+    let mut canaux: Vec<&str> = vec![
+        "System",
+        "Application",
+        "Microsoft-Windows-WHEA-Logger/Operational",
+        "Microsoft-Windows-Diagnostics-Performance/Operational",
+    ];
+    // Le canal Security n'est lisible qu'en administrateur ; il est ignoré
+    // avec un avertissement explicite sinon.
+    if elevated {
+        canaux.push("Security");
     }
-    Ok(events)
+
+    let mut resultat = CollecteResult {
+        events: Vec::new(),
+        avertissements: Vec::new(),
+    };
+    if !elevated {
+        resultat.avertissements.push(
+            "Canal Security ignoré : relancez l'application en administrateur pour l'inclure.".into(),
+        );
+    }
+    for canal in canaux {
+        match query_canal(canal, limit, avert) {
+            Ok(mut ev) => resultat.events.append(&mut ev),
+            Err(e) => resultat.avertissements.push(e),
+        }
+    }
+    // Tri décroissant garanti côté backend (timestamps RFC3339 normalisés,
+    // donc comparables lexicographiquement).
+    resultat.events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    resultat
 }
 
-fn query_canal(canal: &str) -> Result<Vec<CriticalEvent>, String> {
+fn query_canal(canal: &str, limit: u32, avert: bool) -> Result<Vec<CriticalEvent>, String> {
     // wevtutil ne supporte que les formats XML, Text et RenderedXml
     // (pas de JSON) : la sortie XML est parsée par parse_wevtutil_xml.
-    let query = "*[System[(Level=1 or Level=2)]]";
+    // Le canal Security a des niveaux atypiques (les échecs d'audit sont de
+    // niveau 0) : on y inclut explicitement les échecs de connexion (4625).
+    let query = if canal == "Security" {
+        "*[System[(Level=1 or Level=2 or EventID=4625)]]"
+    } else if avert {
+        "*[System[(Level=1 or Level=2 or Level=3)]]"
+    } else {
+        "*[System[(Level=1 or Level=2)]]"
+    };
     let output = Command::new("wevtutil")
         .args([
             "qe",
             canal,
             &format!("/q:{}", query),
-            "/c:50",
+            &format!("/c:{}", limit),
             "/rd:true",
             "/f:XML",
         ])
@@ -154,10 +212,7 @@ fn query_canal(canal: &str) -> Result<Vec<CriticalEvent>, String> {
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(format!(
-            "Accès refusé ou canal inaccessible ({}) : {}",
-            canal, err
-        ));
+        return Err(format!("Canal inaccessible ({}) : {}", canal, err));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -189,6 +244,10 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
     let mut event_id: u32 = 0;
     let mut level: u8 = 0;
     let mut timestamp = String::new();
+    let mut process_id: Option<u32> = None;
+    let mut thread_id: Option<u32> = None;
+    let mut computer = String::new();
+    let mut record_id: u64 = 0;
     let mut event_data: Option<serde_json::Map<String, serde_json::Value>> = None;
     let mut pending_data_name: Option<String> = None;
     let mut cur_elem = String::new();
@@ -217,6 +276,12 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                             timestamp = normalize_timestamp(&t);
                         }
                     }
+                    "Execution" => {
+                        process_id = attr_value(&e, "ProcessID")
+                            .and_then(|v| v.parse().ok());
+                        thread_id = attr_value(&e, "ThreadID")
+                            .and_then(|v| v.parse().ok());
+                    }
                     "EventData" => {
                         event_data = Some(serde_json::Map::new());
                     }
@@ -232,7 +297,7 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
             }
             Ok(Event::Empty(e)) => {
                 // Éléments auto-fermants : <Provider/>, <TimeCreated/>,
-                // <Data Name='X'/> sans valeur (chaîne vide insérée)
+                // <Execution/>, <Data Name='X'/> sans valeur (chaîne vide)
                 match e.name().as_ref() {
                     "Provider" => {
                         provider = attr_value(&e, "Name").unwrap_or_default();
@@ -241,6 +306,12 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                         if let Some(t) = attr_value(&e, "SystemTime") {
                             timestamp = normalize_timestamp(&t);
                         }
+                    }
+                    "Execution" => {
+                        process_id = attr_value(&e, "ProcessID")
+                            .and_then(|v| v.parse().ok());
+                        thread_id = attr_value(&e, "ThreadID")
+                            .and_then(|v| v.parse().ok());
                     }
                     "Data" => {
                         if let Some(map) = event_data.as_mut() {
@@ -257,6 +328,8 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                 match cur_elem.as_str() {
                     "EventID" => event_id = txt.parse().unwrap_or(0),
                     "Level" => level = txt.parse().unwrap_or(0),
+                    "Computer" => computer = txt,
+                    "EventRecordID" => record_id = txt.parse().unwrap_or(0),
                     "Data" => {
                         if let (Some(map), Some(name)) =
                             (event_data.as_mut(), pending_data_name.take())
@@ -269,7 +342,7 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
             }
             Ok(Event::End(e)) => {
                 if e.name().as_ref() == "Event" {
-                    if level <= 2 {
+                    if level <= 3 {
                         let message_raw = event_data
                             .as_ref()
                             .map(|m| serde_json::to_string_pretty(m).unwrap_or_default())
@@ -282,12 +355,20 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                             level,
                             severity: severity_label(level),
                             message_raw,
+                            process_id,
+                            thread_id,
+                            computer: computer.clone(),
+                            record_id,
                         });
                     }
                     provider.clear();
                     event_id = 0;
                     level = 0;
                     timestamp.clear();
+                    process_id = None;
+                    thread_id = None;
+                    computer.clear();
+                    record_id = 0;
                     event_data = None;
                     pending_data_name = None;
                 }
@@ -337,12 +418,52 @@ fn commande_autorisee(cmd: &str) -> Result<(), String> {
 }
 
 fn is_elevated() -> bool {
+    // Le niveau d'intégrité du token (S-1-16-12288 = élevé) est fiable même
+    // quand le service Serveur est désactivé, contrairement à « net session »
+    // qui reste en second recours pour les cas exotiques.
+    let output = Command::new("whoami")
+        .args(["/groups"])
+        .creation_flags_windows_no_window()
+        .output();
+    if let Ok(o) = output {
+        let groupes = String::from_utf8_lossy(&o.stdout);
+        if groupes.contains("S-1-16-12288") {
+            return true;
+        }
+        if groupes.contains("S-1-16-8192") {
+            return false; // intégrité moyenne : non élevé, sans ambiguïté
+        }
+    }
     Command::new("net")
         .args(["session"])
         .creation_flags_windows_no_window()
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+// Relance l'application en administrateur (invite UAC) via ShellExecute.
+#[tauri::command]
+fn relancer_admin() -> Result<(), String> {
+    let exe =
+        std::env::current_exe().map_err(|e| format!("Exécutable introuvable : {}", e))?;
+    let child = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &format!("Start-Process -FilePath '{}' -Verb RunAs", exe.display()),
+        ])
+        .creation_flags_windows_no_window()
+        .spawn()
+        .map_err(|e| format!("Impossible de relancer l'application : {}", e))?;
+    let out = attendre_avec_timeout(child, 30)?;
+    if !out.status.success() {
+        return Err(
+            "La relance en administrateur a été refusée ou a échoué (invite UAC).".into(),
+        );
+    }
+    Ok(())
 }
 
 trait NoWindow {
@@ -1159,7 +1280,14 @@ fn get_diagnostic(event: CriticalEvent) -> Result<Diagnostic, String> {
     Ok(Diagnostic { event, fix })
 }
 
-fn load_knowledge_base() -> Vec<FixEntryMatch> {
+// La base de connaissances est embarquée à la compilation : on la parse
+// une seule fois (OnceLock) au lieu de le refaire à chaque diagnostic.
+fn load_knowledge_base() -> &'static Vec<FixEntryMatch> {
+    static BASE: std::sync::OnceLock<Vec<FixEntryMatch>> = std::sync::OnceLock::new();
+    BASE.get_or_init(charger_base)
+}
+
+fn charger_base() -> Vec<FixEntryMatch> {
     let raw = include_str!("../knowledge_base.json");
     let parsed: serde_json::Value = match serde_json::from_str(raw) {
         Ok(v) => v,
@@ -1237,14 +1365,14 @@ fn load_knowledge_base() -> Vec<FixEntryMatch> {
 fn lookup_fix(provider: &str, event_id: u32) -> Option<FixEntry> {
     let provider_lower = provider.to_lowercase();
     load_knowledge_base()
-        .into_iter()
+        .iter()
         .find(|m| {
             (m.provider.is_empty()
                 || provider_lower.contains(&m.provider)
                 || m.provider.contains(&provider_lower))
                 && m.event_id == event_id
         })
-        .map(|m| m.entry)
+        .map(|m| m.entry.clone())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1260,6 +1388,7 @@ pub fn run() {
             install_windows_updates,
             get_system_info,
             list_problem_devices,
+            relancer_admin,
             check_elevation
         ])
         .run(tauri::generate_context!())
@@ -1287,6 +1416,11 @@ mod tests {
         assert_eq!(e.timestamp, "2026-10-31T23:41:02.183Z");
         assert!(e.message_raw.contains("DeviceName"));
         assert!(e.message_raw.contains("HarddiskVolumeShadowCopy5"));
+        // champs enrichis
+        assert_eq!(e.computer, "FSOCIETY");
+        assert_eq!(e.record_id, 14312);
+        assert_eq!(e.process_id, Some(4));
+        assert_eq!(e.thread_id, Some(7028));
     }
 
     #[test]
@@ -1333,7 +1467,8 @@ mod tests {
     // production et vérifie que le parsing aboutit.
     #[test]
     fn wevtutil_reel_system() {
-        let events = query_canal("System").expect("la requête wevtutil doit réussir");
+        let events =
+            query_canal("System", 50, false).expect("la requête wevtutil doit réussir");
         for e in &events {
             assert_eq!(e.canal, "System");
             assert!(e.level == 1 || e.level == 2, "level inattendu : {}", e.level);
@@ -1343,6 +1478,24 @@ mod tests {
                 chrono::DateTime::parse_from_rfc3339(&e.timestamp).is_ok(),
                 "timestamp non RFC3339 : {}",
                 e.timestamp
+            );
+        }
+    }
+
+    // Intégration : les nouveaux canaux doivent être lisibles (ou signaler
+    // une erreur propre, jamais faire paniquer le parser).
+    #[test]
+    fn wevtutil_reel_canaux_etendus() {
+        for canal in [
+            "System",
+            "Application",
+            "Microsoft-Windows-WHEA-Logger/Operational",
+            "Microsoft-Windows-Diagnostics-Performance/Operational",
+        ] {
+            let resultat = query_canal(canal, 20, true);
+            assert!(
+                resultat.is_ok() || resultat.unwrap_err().contains("inaccessible"),
+                "canal {canal} : erreur inattendue"
             );
         }
     }

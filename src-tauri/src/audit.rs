@@ -7,7 +7,31 @@ use crate::types::*;
 // calcule un score de santé par catégorie. Pénalités : critique -15,
 // erreur -8, avertissement -4, info -3 par problème unique, plus -2 par
 // occurrence supplémentaire (plafonné à 5 occurrences). Score plancher 0.
-pub fn calculer_audit() -> AuditSante {
+
+// Score global : moyenne des catégories IDENTIFIÉES — « non identifie »
+// (événements sans entrée de base) reste affiché dans la liste mais ne
+// pèse pas sur le global : sinon il tire le score vers le bas sans
+// dire quoi que ce soit d'actionnable. Si aucune catégorie n'est
+// identifiée, repli sur la moyenne de toutes (jamais un 100 mensonger
+// sur une machine pleine d'erreurs inconnues).
+pub fn score_global(categories: &[CategorieScore]) -> u8 {
+    if categories.is_empty() {
+        return 100;
+    }
+    let identifiees: Vec<&CategorieScore> = categories
+        .iter()
+        .filter(|c| c.categorie != "non identifie")
+        .collect();
+    let retenues: Vec<&CategorieScore> = if identifiees.is_empty() {
+        categories.iter().collect()
+    } else {
+        identifiees
+    };
+    let somme: u32 = retenues.iter().map(|c| c.score as u32).sum();
+    (somme / retenues.len() as u32) as u8
+}
+
+fn calculer_audit() -> AuditSante {
     use std::collections::BTreeMap;
 
     let collecte = collecter_evenements(200, true, None);
@@ -80,12 +104,7 @@ pub fn calculer_audit() -> AuditSante {
         })
         .collect();
 
-    let global = if categories.is_empty() {
-        100
-    } else {
-        let somme: u32 = categories.iter().map(|c| c.score as u32).sum();
-        (somme / categories.len() as u32) as u8
-    };
+    let global = score_global(&categories);
 
     AuditSante {
         global,
@@ -102,4 +121,43 @@ pub async fn get_health_audit() -> Result<AuditSante, String> {
         .await
         .map_err(|e| format!("L'audit a échoué : {}", e))?;
     Ok(audit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cat(nom: &str, score: u8) -> CategorieScore {
+        CategorieScore {
+            categorie: nom.to_string(),
+            score,
+            problemes: 1,
+        }
+    }
+
+    // 4.4 — « non identifie » ne pèse pas sur le score global.
+    #[test]
+    fn score_global_ignore_non_identifie() {
+        let cats = vec![cat("stockage", 80), cat("non identifie", 0)];
+        // Moyenne brute = 40 ; pondérée sur les catégories identifiées = 80.
+        assert_eq!(score_global(&cats), 80);
+    }
+
+    #[test]
+    fn score_global_vide_est_100() {
+        assert_eq!(score_global(&[]), 100);
+    }
+
+    #[test]
+    fn score_global_toutes_inconnues_replie_sur_la_moyenne() {
+        // Une machine pleine d'erreurs inconnues ne doit pas afficher 100.
+        let cats = vec![cat("non identifie", 0)];
+        assert_eq!(score_global(&cats), 0);
+    }
+
+    #[test]
+    fn score_global_moyenne_simple_sans_inconnues() {
+        let cats = vec![cat("stockage", 40), cat("systeme", 84)];
+        assert_eq!(score_global(&cats), 62);
+    }
 }

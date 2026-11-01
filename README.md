@@ -11,7 +11,7 @@ Application desktop Windows (Tauri 2) : **lecteur d'événements Windows avec di
 - Niveaux Critique / Erreur / Avertissement (optionnel), limite 50/200/500 par canal
 - Filtres : canal, sévérité, période, recherche libre, tri par colonne
 - Champs enrichis par événement : machine, PID, n° d'enregistrement
-- 🧠 Base de connaissances **35 entrées** (`src-tauri/knowledge_base.json`) : Kernel-Power 41, WHEA 17/18/19/20, disk 7/11/51/153, Ntfs 50/55, volsnap 25, volmgr 162, SCM 7000/7001/7024/7031/7034/7045, DCOM 10016, Tcpip 4233, DNS 1014, épuisement mémoire, Application Error 1000/Hang 1002, .NET 1026, démarrage lent 100/101/108, échecs de connexion 4625…
+- 🧠 Base de connaissances **44 entrées** (`src-tauri/knowledge_base.json`) : Kernel-Power 41, WHEA 17/18/19/20, disk 7/11/51/153, Ntfs 50/55, volsnap 25, volmgr 162, SCM 7000/7001/7024/7031/7034/7045, DCOM 10016, Tcpip 4233, DNS 1014, épuisement mémoire, Application Error 1000/Hang 1002, .NET 1026, démarrage lent 100/101/108, échecs de connexion 4625…
 - Correctifs exécutables (lecture seule) attachés aux diagnostics pertinents
 
 ### 🩺 Audit de santé
@@ -67,6 +67,6 @@ pnpm tauri build # MSI + NSIS dans src-tauri/target/release/bundle
 ## Tests
 
 ```bash
-cd src-tauri && cargo test   # 27 tests (unitaires + intégrations réelles lecture seule)
-pnpm test                   # 21 tests frontend (Vitest, fonctions pures)
+cd src-tauri && cargo test   # 31 tests (unitaires + intégrations réelles lecture seule)
+pnpm test                   # 28 tests frontend (Vitest, fonctions pures)
 ```

@@ -669,12 +669,29 @@ async fn update_applications(ids: Vec<String>) -> Result<CommandResult, String> 
         .map_err(|e| format!("La mise à jour a échoué : {}", e))?
 }
 
+// winget signale qu'une mise à jour est installée mais ne sera finalisée
+// qu'après fermeture/relance de l'application (paquets MSIX/appx exécutés
+// pendant l'installation : Terminal, Photos, etc.) ou qu'un redémarrage du
+// système est requis (MSI). Ces paquets restent listés comme « à mettre à
+// jour » tant que la finalisation n'a pas eu lieu : il faut prévenir
+// l'utilisateur pour éviter la confusion au prochain scan.
+fn finalisation_requise(sortie: &str) -> bool {
+    let lower = sortie.to_lowercase();
+    lower.contains("redémar")
+        || lower.contains("redemar")
+        || lower.contains("restart the app")
+        || lower.contains("restart the computer")
+        || lower.contains("restart the system")
+        || lower.contains("system restart")
+}
+
 fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, String> {
     let elevated = is_elevated();
     let start = Instant::now();
     let mut rapport = String::new();
     let mut stderr_all = String::new();
     let mut echecs = 0usize;
+    let mut a_finaliser: Vec<String> = Vec::new();
 
     // 1) Mise à jour de chaque application sélectionnée (par ID exact).
     if !ids.is_empty() {
@@ -701,8 +718,18 @@ fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, String> {
         };
         match attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES) {
             Ok(out) => {
-                rapport.push_str(&String::from_utf8_lossy(&out.stdout));
+                let stdout_pkg = String::from_utf8_lossy(&out.stdout);
+                rapport.push_str(&stdout_pkg);
                 stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));
+                if finalisation_requise(&stdout_pkg) {
+                    a_finaliser.push(id.clone());
+                    rapport.push_str(&format!(
+                        "\r\n⚠ La mise à jour de {id} est installée mais \
+                         finalisée seulement à la fermeture/relance de \
+                         l'application (ou au redémarrage du système). Elle \
+                         continuera d'apparaître dans les scans d'ici là.\r\n"
+                    ));
+                }
                 if let Some(code) = out.status.code() {
                     if code != 0 {
                         echecs += 1;
@@ -716,6 +743,17 @@ fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, String> {
                 rapport.push_str(&format!("\r\n{e}\r\n"));
             }
         }
+    }
+
+    if !a_finaliser.is_empty() {
+        rapport.push_str(&format!(
+            "\r\n⚠ {nb} mise(s) à jour en attente de finalisation : {liste}.\r\n\
+             Fermez puis rouvrez ces applications (ou redémarrez le PC) pour \
+             terminer l'installation — d'ici là, elles resteront proposées par \
+             le scan des mises à jour.\r\n",
+            nb = a_finaliser.len(),
+            liste = a_finaliser.join(", ")
+        ));
     }
 
     if echecs > 0 {
@@ -1079,6 +1117,30 @@ mod tests_winget {
             assert!(!p.name.is_empty(), "nom vide pour {:?}", p);
             assert!(!p.available.is_empty(), "version disponible vide pour {:?}", p);
         }
+    }
+
+    #[test]
+    fn detection_finalisation_requise() {
+        // Sortie réelle de winget pour un paquet MSIX exécuté (Terminal).
+        assert!(finalisation_requise(
+            "Le code de hachage de l'installation a été vérifié avec succès\r\n\
+             Démarrage du package d'installation... Merci de patienter.\r\n\
+             Installation réussie. Redémarrez l'application pour terminer la mise à niveau.\r\n"
+        ));
+        // Redémarrage système requis (MSI)
+        assert!(finalisation_requise(
+            "Installation réussie. Un redémarrage du système est requis pour terminer l'installation."
+        ));
+        // Anglais
+        assert!(finalisation_requise(
+            "Successfully installed. Restart the application to complete the upgrade."
+        ));
+        // Sortie normale : pas de finalisation en attente
+        assert!(!finalisation_requise(
+            "Le code de hachage de l'installation a été vérifié avec succès\r\n\
+             Installation réussie.\r\n"
+        ));
+        assert!(!finalisation_requise(""));
     }
 
     #[test]

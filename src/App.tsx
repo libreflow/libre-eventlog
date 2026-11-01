@@ -91,6 +91,7 @@ export default function App() {
     executerCommande,
     demanderExecution,
     lancerTacheTerminal,
+    annulerCommande,
   } = useCommandes();
   const [majOuverte, setMajOuverte] = useState(false);
   const [majChargement, setMajChargement] = useState(false);
@@ -224,7 +225,7 @@ export default function App() {
       MAJ_APPS.label,
       `${MAJ_APPS.commande} — ${ids.length} paquet(s)`,
       MAJ_APPS.commande,
-      () => invoke<CommandResult>("update_applications", { ids }),
+      (entreeId) => invoke<CommandResult>("update_applications", { ids, entreeId }),
     );
   }
 
@@ -272,7 +273,7 @@ export default function App() {
       "Mises à jour Windows",
       `Installation de ${ids.length} mise(s) à jour Windows via l'agent Windows Update`,
       "windows-update",
-      () => invoke<CommandResult>("install_windows_updates", { updateIds: ids }),
+      (entreeId) => invoke<CommandResult>("install_windows_updates", { updateIds: ids, entreeId }),
     ).finally(() => chargerWu());
   }
 
@@ -638,6 +639,7 @@ export default function App() {
         onCommencerRedimension={commencerRedimension}
         onBougerRedimension={bougerRedimension}
         onFinirRedimension={finirRedimension}
+        onAnnuler={annulerCommande}
       />
 
       {auditOuverte && (

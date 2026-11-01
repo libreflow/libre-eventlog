@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::powershell::{attendre_avec_timeout, spawn_powershell};
+use crate::powershell::{attendre_avec_timeout, enregistrer_processus, spawn_powershell};
 use crate::securite::is_elevated;
 use crate::types::*;
 
@@ -56,7 +56,7 @@ pub fn parse_wu_scan(stdout: &str) -> Vec<WinUpdate> {
 
 pub fn recenser_mises_a_jour_windows() -> Result<Vec<WinUpdate>, String> {
     let child = spawn_powershell(PS_WU_SCAN, &[])?;
-    let out = attendre_avec_timeout(child, WU_SCAN_TIMEOUT_SECONDES)?;
+    let out = attendre_avec_timeout(child, WU_SCAN_TIMEOUT_SECONDES, None)?;
     if !out.status.success() {
         return Err(format!(
             "La recherche de mises à jour Windows a échoué : {}",
@@ -112,7 +112,10 @@ if ($sys.RebootRequired) {
 }
 "#;
 
-pub fn installer_mises_a_jour_windows(update_ids: Vec<String>) -> Result<CommandResult, String> {
+pub fn installer_mises_a_jour_windows(
+    update_ids: Vec<String>,
+    flux: Option<(tauri::AppHandle, u64)>,
+) -> Result<CommandResult, String> {
     if update_ids.iter().any(|id| !id_wu_valide(id)) {
         return Err("Identifiant de mise à jour invalide.".into());
     }
@@ -125,7 +128,10 @@ pub fn installer_mises_a_jour_windows(update_ids: Vec<String>) -> Result<Command
 
     let child = spawn_powershell(PS_WU_INSTALL, &args)?;
 
-    let out = attendre_avec_timeout(child, WU_INSTALL_TIMEOUT_SECONDES)?;
+    if let Some((_, entree_id)) = &flux {
+        enregistrer_processus(*entree_id, child.id());
+    }
+    let out = attendre_avec_timeout(child, WU_INSTALL_TIMEOUT_SECONDES, flux.clone())?;
 
     Ok(CommandResult {
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -137,8 +143,14 @@ pub fn installer_mises_a_jour_windows(update_ids: Vec<String>) -> Result<Command
 }
 
 #[tauri::command]
-pub async fn install_windows_updates(update_ids: Vec<String>) -> Result<CommandResult, String> {
-    tauri::async_runtime::spawn_blocking(move || installer_mises_a_jour_windows(update_ids))
-        .await
-        .map_err(|e| format!("L'installation des mises à jour Windows a échoué : {}", e))?
+pub async fn install_windows_updates(
+    update_ids: Vec<String>,
+    entree_id: u64,
+    app: tauri::AppHandle,
+) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        installer_mises_a_jour_windows(update_ids, Some((app, entree_id)))
+    })
+    .await
+    .map_err(|e| format!("L'installation des mises à jour Windows a échoué : {}", e))?
 }

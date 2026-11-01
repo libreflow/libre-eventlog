@@ -33,7 +33,7 @@ Get-PnpDevice -PresentOnly | Where-Object { $_.Status -ne 'OK' } | ForEach-Objec
 
 pub fn lire_systeme_info() -> Result<SystemInfo, String> {
     let child = spawn_powershell(PS_SYSTEM_INFO, &[])?;
-    let out = attendre_avec_timeout(child, 60)?;
+    let out = attendre_avec_timeout(child, 60, None)?;
     if !out.status.success() {
         return Err(format!(
             "Lecture des informations système impossible : {}",
@@ -53,7 +53,7 @@ pub fn lire_systeme_info() -> Result<SystemInfo, String> {
 
 pub fn lister_peripheriques_problemes() -> Result<Vec<ProblemDevice>, String> {
     let child = spawn_powershell(PS_PROBLEM_DEVICES, &[])?;
-    let out = attendre_avec_timeout(child, 120)?;
+    let out = attendre_avec_timeout(child, 120, None)?;
     if !out.status.success() {
         return Err(format!(
             "Énumération des périphériques impossible : {}",

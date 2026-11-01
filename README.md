@@ -27,7 +27,7 @@ Application desktop Windows (Tauri 2) : **lecteur d'événements Windows avec di
 - **Correctifs système** : sfc /scannow, DISM CheckHealth/ScanHealth/RestoreHealth, combo DISM+sfc, chkdsk /scan, flushdns, réinitialisation pile réseau
 
 ### UX
-- Terminal intégré (copie, historique horodaté, codes de sortie)
+- Terminal intégré (copie, historique horodaté, codes de sortie, **sortie en temps réel** et **annulation** des commandes annulables)
 - Relance en administrateur guidée (UAC)
 - Raccourcis : `F5` analyser, `Ctrl+F` recherche, `Ctrl+T` terminal, `Échap` fermer
 - Auto-refresh (5/15/30 min), thème clair/sombre persistant
@@ -37,7 +37,7 @@ Application desktop Windows (Tauri 2) : **lecteur d'événements Windows avec di
 - **Catalogue fixe** : aucune commande arbitraire saisie par l'utilisateur
 - **Liste blanche deny-by-default** : chaque segment de commande doit commencer par un exécutable ou un cmdlet autorisé (découpage conscient de la syntaxe PowerShell : guillemets, hashtables)
 - **Denylist** destructrice en second filet (Format-Volume, Remove-Item, reg delete…)
-- Timeouts par commande (plafond 2 h), processes tués au dépassement
+- Timeouts par commande (plafond 2 h), arbre de processus tué au dépassement ou à l'annulation (taskkill /T) ; sfc/DISM/chkdsk non annulables
 - Commandes Tauri async (`spawn_blocking`) : l'UI ne se gèle jamais
 - CSP durcie, création de fenêtre console masquée, élévation explicite
 - Tests d'intégration en **lecture seule uniquement**
@@ -67,6 +67,6 @@ pnpm tauri build # MSI + NSIS dans src-tauri/target/release/bundle
 ## Tests
 
 ```bash
-cd src-tauri && cargo test   # 26 tests (unitaires + intégrations réelles lecture seule)
+cd src-tauri && cargo test   # 27 tests (unitaires + intégrations réelles lecture seule)
 pnpm test                   # 21 tests frontend (Vitest, fonctions pures)
 ```

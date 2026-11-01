@@ -43,7 +43,8 @@ pub fn run() {
             list_problem_devices,
             get_health_audit,
             relancer_admin,
-            check_elevation
+            check_elevation,
+            annuler_commande
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Libre EventLog");
@@ -224,9 +225,12 @@ mod tests {
             elevation: false,
             confirme: false,
             timeout_secs: Some(900),
+            annulable: true,
         };
         let cmd_v = serde_json::to_value(cmd.clone()).unwrap();
         assert_eq!(cmd_v["timeoutSecs"], serde_json::json!(900));
+        // champ annulable (défaut true) transporté au frontend
+        assert_eq!(cmd_v["annulable"], serde_json::json!(true));
         let sans_timeout = serde_json::to_value(CommandeFix {
             timeout_secs: None,
             ..cmd
@@ -416,7 +420,7 @@ mod tests {
     fn sortie_powershell_utf8_preserve_les_accents() {
         let child = spawn_powershell("Write-Output 'Téléchargement à é'", &[])
             .expect("powershell doit se lancer");
-        let out = attendre_avec_timeout(child, 30).expect("la commande doit aboutir");
+        let out = attendre_avec_timeout(child, 30, None).expect("la commande doit aboutir");
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         assert!(
             stdout.contains("Téléchargement à é"),
@@ -446,6 +450,20 @@ mod tests {
     // Régression : une commande produisant plus que le buffer du pipe (~4 Ko)
     // ne doit pas bloquer jusqu'au timeout — les tubes doivent être vidés
     // en parallèle de l'attente du processus.
+    // Le streaming diffuse les lignes une à une mais doit aussi les
+    // accumuler intégralement (normalisées avec LF) dans le CommandResult.
+    #[test]
+    fn sortie_multiligne_accumulee_par_le_lecteur_ligne_a_ligne() {
+        let child = spawn_powershell(
+            "Write-Output 'ligne 1'; Write-Output 'ligne 2'; Write-Output 'ligne 3'",
+            &[],
+        )
+        .expect("powershell doit se lancer");
+        let out = attendre_avec_timeout(child, 30, None).expect("la commande doit aboutir");
+        let texte = String::from_utf8_lossy(&out.stdout).to_string();
+        assert_eq!(texte, "ligne 1\nligne 2\nligne 3\n");
+    }
+
     #[test]
     fn gros_volume_de_sortie_ne_bloque_pas() {
         let child = Command::new("powershell.exe")
@@ -463,7 +481,7 @@ mod tests {
             .expect("powershell doit se lancer");
 
         let start = Instant::now();
-        let out = attendre_avec_timeout(child, 15).expect("la commande doit aboutir");
+        let out = attendre_avec_timeout(child, 15, None).expect("la commande doit aboutir");
         // ~46 octets x 8000 lignes ~ 370 Ko >> buffer du pipe
         assert!(
             out.stdout.len() > 100_000,

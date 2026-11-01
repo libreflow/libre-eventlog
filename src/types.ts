@@ -26,6 +26,8 @@ export interface CommandeFix {
   confirme: boolean;
   /** Délai d'exécution max en secondes (défaut backend : 120, plafond : 7200). */
   timeoutSecs?: number;
+  /** false pour les commandes système qui ne doivent pas être interrompues (sfc, DISM…). */
+  annulable?: boolean;
 }
 
 export interface FixEntry {

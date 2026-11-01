@@ -19,6 +19,12 @@ export interface TerminalEntry {
   error: string | null;
   running: boolean;
   time: string;
+  /** Lignes de sortie diffusées en temps réel pendant l'exécution. */
+  lignes: string[];
+  /** La commande peut-elle être annulée (false pour sfc/DISM/chkdsk). */
+  annulable: boolean;
+  /** Commande annulée par l'utilisateur. */
+  annulee: boolean;
 }
 
 // Terminal intégré : historique horodaté des commandes exécutées, sortie
@@ -35,6 +41,7 @@ export function Terminal({
   onCommencerRedimension,
   onBougerRedimension,
   onFinirRedimension,
+  onAnnuler,
 }: {
   ouvert: boolean;
   onOuvrir: () => void;
@@ -46,6 +53,7 @@ export function Terminal({
   onCommencerRedimension: (e: React.PointerEvent) => void;
   onBougerRedimension: (e: React.PointerEvent) => void;
   onFinirRedimension: () => void;
+  onAnnuler: (entreeId: number) => void;
 }) {
   if (!ouvert) {
     if (entries.length === 0) return null;
@@ -111,9 +119,26 @@ export function Terminal({
                 <span className="term-label">{entry.label}</span>
               </div>
               <code className="cmd-line">{entry.commande}</code>
+              {entry.running && entry.lignes.length > 0 && (
+                <pre className="term-out">{entry.lignes.join("\n")}</pre>
+              )}
               {entry.running && (
                 <p className="term-status">
                   <Loader2 className="icon spin" aria-hidden="true" /> Exécution en cours…
+                  {entry.annulable && (
+                    <button
+                      className="btn small copier-btn"
+                      onClick={() => onAnnuler(entry.id)}
+                      title="Termine l'arbre de processus de cette commande"
+                    >
+                      Annuler
+                    </button>
+                  )}
+                </p>
+              )}
+              {entry.annulee && (
+                <p className="term-status">
+                  <XCircle className="icon muted" aria-hidden="true" /> Commande annulée par l'utilisateur.
                 </p>
               )}
               {entry.error && <pre className="term-err">{entry.error}</pre>}

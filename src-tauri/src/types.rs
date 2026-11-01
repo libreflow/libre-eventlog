@@ -102,6 +102,25 @@ pub struct CommandeFix {
     /// tuées prématurément.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
+    /// Une commande non annulable (sfc, DISM, chkdsk…) interrompt un
+    /// traitement système qui ne doit pas être stoppé en cours d'écriture :
+    /// l'UI ne propose pas de bouton Annuler.
+    #[serde(default = "default_true")]
+    pub annulable: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Ligne de sortie diffusée en temps réel vers le terminal intégré
+/// (événement Tauri « terminal://ligne »). `flux` : "out" ou "err".
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LigneTerminal {
+    pub id: u64,
+    pub flux: String,
+    pub texte: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,7 +1,7 @@
 use std::process::Command;
 use std::time::Instant;
 
-use crate::powershell::{attendre_avec_timeout, spawn_powershell, NoWindow};
+use crate::powershell::{attendre_avec_timeout, enregistrer_processus, spawn_powershell, NoWindow};
 use crate::securite::is_elevated;
 use crate::types::*;
 
@@ -90,7 +90,7 @@ pub fn recenser_mises_a_jour() -> Result<Vec<WingetPackage>, String> {
         "--accept-source-agreements",
         "--disable-interactivity",
     ])?;
-    let out = attendre_avec_timeout(child, 120)?;
+    let out = attendre_avec_timeout(child, 120, None)?;
     let paquets = parse_winget_upgrade_table(&String::from_utf8_lossy(&out.stdout));
     if paquets.is_empty() && !out.status.success() {
         return Err(format!(
@@ -208,10 +208,16 @@ if ($dups) {
 "#;
 
 #[tauri::command]
-pub async fn update_applications(ids: Vec<String>) -> Result<CommandResult, String> {
-    tauri::async_runtime::spawn_blocking(move || mise_a_jour_applications(ids))
-        .await
-        .map_err(|e| format!("La mise à jour a échoué : {}", e))?
+pub async fn update_applications(
+    ids: Vec<String>,
+    entree_id: u64,
+    app: tauri::AppHandle,
+) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        mise_a_jour_applications(ids, Some((app, entree_id)))
+    })
+    .await
+    .map_err(|e| format!("La mise à jour a échoué : {}", e))?
 }
 
 // winget signale qu'une mise à jour est installée mais ne sera finalisée
@@ -230,7 +236,10 @@ pub fn finalisation_requise(sortie: &str) -> bool {
         || lower.contains("system restart")
 }
 
-pub fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, String> {
+pub fn mise_a_jour_applications(
+    ids: Vec<String>,
+    flux: Option<(tauri::AppHandle, u64)>,
+) -> Result<CommandResult, String> {
     let elevated = is_elevated();
     let start = Instant::now();
     let mut rapport = String::new();
@@ -261,7 +270,10 @@ pub fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, Strin
                 continue;
             }
         };
-        match attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES) {
+        if let Some((_, entree_id)) = &flux {
+            enregistrer_processus(*entree_id, child.id());
+        }
+        match attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES, flux.clone()) {
             Ok(out) => {
                 let stdout_pkg = String::from_utf8_lossy(&out.stdout);
                 rapport.push_str(&stdout_pkg);
@@ -339,7 +351,7 @@ pub fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, Strin
     // 3) Détection des résidus d'anciennes versions (lecture seule).
     rapport.push_str("\r\n=== Residus d'anciennes versions ===\r\n");
     let child = spawn_powershell(PS_SCAN_RESIDUS, &[])?;
-    match attendre_avec_timeout(child, 60) {
+    match attendre_avec_timeout(child, 60, None) {
         Ok(out) => {
             rapport.push_str(&String::from_utf8_lossy(&out.stdout));
             stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));

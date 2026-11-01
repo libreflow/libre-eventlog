@@ -1616,11 +1616,15 @@ mod tests {
     #[test]
     fn contrat_serialisation_frontend() {
         fn cles(v: serde_json::Value) -> Vec<String> {
-            v.as_object()
+            // Ordre sans importance en JSON : comparaison en ensemble trié.
+            let mut k: Vec<String> = v
+                .as_object()
                 .unwrap()
                 .keys()
                 .map(|k| k.to_string())
-                .collect()
+                .collect();
+            k.sort();
+            k
         }
 
         let event = serde_json::to_value(CriticalEvent {
@@ -1640,17 +1644,17 @@ mod tests {
         assert_eq!(
             cles(event),
             vec![
-                "timestamp",
                 "canal",
-                "provider",
+                "computer",
                 "eventId",
                 "level",
-                "severity",
                 "messageRaw",
                 "processId",
-                "threadId",
-                "computer",
+                "provider",
                 "recordId",
+                "severity",
+                "threadId",
+                "timestamp",
             ]
         );
 
@@ -1665,7 +1669,7 @@ mod tests {
                 })
                 .unwrap()
             ),
-            vec!["stdout", "stderr", "exitCode", "durationMs", "elevated"]
+            vec!["durationMs", "elevated", "exitCode", "stderr", "stdout"]
         );
 
         assert_eq!(
@@ -1678,7 +1682,7 @@ mod tests {
                 })
                 .unwrap()
             ),
-            vec!["name", "id", "version", "available"]
+            vec!["available", "id", "name", "version"]
         );
 
         assert_eq!(
@@ -1691,7 +1695,7 @@ mod tests {
                 })
                 .unwrap()
             ),
-            vec!["updateId", "title", "kind", "sizeMb"]
+            vec!["kind", "sizeMb", "title", "updateId"]
         );
 
         assert_eq!(
@@ -1705,7 +1709,7 @@ mod tests {
                 })
                 .unwrap()
             ),
-            vec!["manufacturer", "model", "biosVersion", "biosDate", "serial"]
+            vec!["biosDate", "biosVersion", "manufacturer", "model", "serial"]
         );
 
         assert_eq!(
@@ -1718,7 +1722,7 @@ mod tests {
                 })
                 .unwrap()
             ),
-            vec!["name", "instanceId", "problemCode", "status"]
+            vec!["instanceId", "name", "problemCode", "status"]
         );
 
         assert_eq!(
@@ -1733,11 +1737,11 @@ mod tests {
                 .unwrap()
             ),
             vec![
-                "global",
                 "categories",
+                "genereLe",
+                "global",
                 "problemes",
-                "totalEvenements",
-                "genereLe"
+                "totalEvenements"
             ]
         );
 
@@ -1755,13 +1759,13 @@ mod tests {
                 .unwrap()
             ),
             vec![
-                "provider",
+                "categorie",
+                "count",
+                "etapes",
                 "eventId",
                 "level",
-                "count",
-                "titre",
-                "categorie",
-                "etapes"
+                "provider",
+                "titre"
             ]
         );
 

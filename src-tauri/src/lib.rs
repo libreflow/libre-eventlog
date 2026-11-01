@@ -503,7 +503,11 @@ mod tests {
             .expect("powershell doit se lancer");
 
         let start = Instant::now();
-        let out = attendre_avec_timeout(child, 15, None).expect("la commande doit aboutir");
+        // 60 s de marge : un runner CI lent exécute ce pipeline en plus de
+        // 15 s à froid (PowerShell + 8000 interpolations) ; un verrou de
+        // pipe, lui, consommerait tout le délai et provoquerait l'Err de
+        // l'expect — la régression reste détectée.
+        let out = attendre_avec_timeout(child, 60, None).expect("la commande doit aboutir");
         // ~46 octets x 8000 lignes ~ 370 Ko >> buffer du pipe
         assert!(
             out.stdout.len() > 100_000,
@@ -511,7 +515,7 @@ mod tests {
             out.stdout.len()
         );
         assert!(
-            start.elapsed().as_secs() < 10,
+            start.elapsed().as_secs() < 50,
             "la commande a bloque : {:?}",
             start.elapsed()
         );

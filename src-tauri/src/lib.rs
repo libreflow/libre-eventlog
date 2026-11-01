@@ -326,10 +326,40 @@ fn check_elevation() -> bool {
 
 // Attend la fin d'un processus enfant avec un délai maximal ; au-delà,
 // le processus est tué (filet de sécurité contre les commandes bloquées).
+// Les tubes stdout/stderr sont vidés dans des threads dédiés : sans cela,
+// un processus produisant plus que le buffer du pipe (~4 Ko) bloque sur
+// l'écriture et n'existe jamais (verrou mortel jusqu'au timeout).
 fn attendre_avec_timeout(
     mut child: std::process::Child,
     timeout_secondes: u64,
 ) -> Result<std::process::Output, String> {
+    use std::io::Read;
+    use std::sync::mpsc;
+
+    const GRACE_SORTIE: std::time::Duration = std::time::Duration::from_secs(30);
+
+    let (tx_out, rx_out) = mpsc::channel::<Vec<u8>>();
+    let (tx_err, rx_err) = mpsc::channel::<Vec<u8>>();
+
+    if let Some(mut pipe) = child.stdout.take() {
+        std::thread::spawn(move || {
+            let mut tampon = Vec::new();
+            let _ = pipe.read_to_end(&mut tampon);
+            let _ = tx_out.send(tampon);
+        });
+    } else {
+        let _ = tx_out.send(Vec::new());
+    }
+    if let Some(mut pipe) = child.stderr.take() {
+        std::thread::spawn(move || {
+            let mut tampon = Vec::new();
+            let _ = pipe.read_to_end(&mut tampon);
+            let _ = tx_err.send(tampon);
+        });
+    } else {
+        let _ = tx_err.send(Vec::new());
+    }
+
     let start = Instant::now();
     loop {
         match child.try_wait() {
@@ -347,9 +377,21 @@ fn attendre_avec_timeout(
             Err(e) => return Err(format!("Erreur pendant l'exécution : {}", e)),
         }
     }
-    child
-        .wait_with_output()
-        .map_err(|e| format!("Impossible de lire la sortie : {}", e))
+
+    let status = child
+        .wait()
+        .map_err(|e| format!("Impossible d'obtenir le statut de sortie : {}", e))?;
+
+    // Délai de grâce : un processus petit-fils (ex. installateur lancé par
+    // winget) peut garder le tube ouvert après la sortie du processus direct.
+    let stdout = rx_out.recv_timeout(GRACE_SORTIE).unwrap_or_default();
+    let stderr = rx_err.recv_timeout(GRACE_SORTIE).unwrap_or_default();
+
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 #[tauri::command]
@@ -364,7 +406,7 @@ fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
     // PowerShell : -NoProfile évite les scripts de profil, -NonInteractive
     // empêche toute invite bloquante, et CREATE_NO_WINDOW garantit qu'aucune
     // fenêtre console n'apparaît : tout est capturé et renvoyé à l'UI.
-    let mut child = Command::new("powershell.exe")
+    let child = Command::new("powershell.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -500,10 +542,10 @@ fn update_applications() -> Result<CommandResult, String> {
     let start = Instant::now();
     let mut rapport = String::new();
     let mut stderr_all = String::new();
-    let mut exit_code: Option<i32> = None;
+    let exit_code: Option<i32>;
 
     // 1) Mise à jour de toutes les applications installées via winget.
-    let mut child = spawn_winget(&[
+    let child = spawn_winget(&[
         "upgrade",
         "--all",
         "--silent",
@@ -518,7 +560,24 @@ fn update_applications() -> Result<CommandResult, String> {
             stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));
         }
         Err(e) => {
+            // Sans cela, le code de sortie du scan de résidus (0) serait
+            // adopté plus bas et l'UI afficherait un faux « succès ».
+            exit_code = Some(1);
             stderr_all.push_str(&e);
+            rapport.push_str(
+                "\r\nLa mise à jour a été interrompue (délai dépassé). \
+                 Les étapes de nettoyage continuent ci-dessous.\r\n",
+            );
+        }
+    }
+
+    if let Some(code) = exit_code {
+        if code != 0 {
+            rapport.push_str(&format!(
+                "\r\nNote : winget a retourné le code {code} — souvent \
+                 « aucune mise à jour applicable » ou des échecs ponctuels \
+                 sur certains paquets ; le détail est dans la sortie/stderr.\r\n"
+            ));
         }
     }
 
@@ -552,7 +611,7 @@ fn update_applications() -> Result<CommandResult, String> {
 
     // 3) Détection des résidus d'anciennes versions (lecture seule).
     rapport.push_str("\r\n=== Residus d'anciennes versions ===\r\n");
-    let mut child = Command::new("powershell.exe")
+    let child = Command::new("powershell.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -569,9 +628,6 @@ fn update_applications() -> Result<CommandResult, String> {
         .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
     match attendre_avec_timeout(child, 60) {
         Ok(out) => {
-            if exit_code.is_none() {
-                exit_code = out.status.code();
-            }
             rapport.push_str(&String::from_utf8_lossy(&out.stdout));
             stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));
         }
@@ -810,5 +866,31 @@ mod tests {
         assert_eq!(taille_lisible(512), "512 o");
         assert_eq!(taille_lisible(2048), "2.0 Ko");
         assert_eq!(taille_lisible(5 * 1024 * 1024), "5.0 Mo");
+    }
+
+    // Régression : une commande produisant plus que le buffer du pipe (~4 Ko)
+    // ne doit pas bloquer jusqu'au timeout — les tubes doivent être vidés
+    // en parallèle de l'attente du processus.
+    #[test]
+    fn gros_volume_de_sortie_ne_bloque_pas() {
+        let child = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "0..8000 | ForEach-Object { \"ligne de sortie volontairement longue numero $_\" }",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .creation_flags_windows_no_window()
+            .spawn()
+            .expect("powershell doit se lancer");
+
+        let start = Instant::now();
+        let out = attendre_avec_timeout(child, 15).expect("la commande doit aboutir");
+        // ~46 octets x 8000 lignes ~ 370 Ko >> buffer du pipe
+        assert!(out.stdout.len() > 100_000, "sortie trop courte : {}", out.stdout.len());
+        assert!(start.elapsed().as_secs() < 10, "la commande a bloque : {:?}", start.elapsed());
     }
 }

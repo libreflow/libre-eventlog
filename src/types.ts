@@ -15,6 +15,8 @@ export interface CommandeFix {
   type: string;
   elevation: boolean;
   confirme: boolean;
+  /** Délai d'exécution max en secondes (défaut backend : 120, plafond : 7200). */
+  timeoutSecs?: number;
 }
 
 export interface FixEntry {

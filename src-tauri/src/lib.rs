@@ -423,14 +423,31 @@ fn attendre_avec_timeout(
 }
 
 #[tauri::command]
-async fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
-    tauri::async_runtime::spawn_blocking(move || executer_commande_ps(commande))
-        .await
-        .map_err(|e| format!("La commande a échoué : {}", e))?
+async fn run_diagnostic_command(
+    commande: String,
+    timeout_secs: Option<u64>,
+) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        executer_commande_ps(commande, timeout_secs)
+    })
+    .await
+    .map_err(|e| format!("La commande a échoué : {}", e))?
 }
 
-fn executer_commande_ps(commande: String) -> Result<CommandResult, String> {
-    const TIMEOUT_SECONDES: u64 = 120;
+// Défaut 120 s ; plafonné pour qu'une commande compromise ne puisse pas
+// maintenir un processus PowerShell indéfiniment. Les correctifs longs
+// (sfc, DISM RestoreHealth, chkdsk…) demandent explicitement plus.
+fn resoudre_timeout(timeout_secs: Option<u64>) -> u64 {
+    const DEFAUT: u64 = 120;
+    const PLAFOND: u64 = 7200;
+    timeout_secs.unwrap_or(DEFAUT).clamp(1, PLAFOND)
+}
+
+fn executer_commande_ps(
+    commande: String,
+    timeout_secs: Option<u64>,
+) -> Result<CommandResult, String> {
+    let timeout = resoudre_timeout(timeout_secs);
 
     commande_autorisee(&commande)?;
 
@@ -456,7 +473,7 @@ fn executer_commande_ps(commande: String) -> Result<CommandResult, String> {
         .spawn()
         .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
 
-    let output = attendre_avec_timeout(child, TIMEOUT_SECONDES)?;
+    let output = attendre_avec_timeout(child, timeout)?;
 
     Ok(CommandResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -614,7 +631,9 @@ fn parse_wu_scan(stdout: &str) -> Vec<WinUpdate> {
         maj.push(WinUpdate {
             update_id: id.to_string(),
             kind: kind.to_string(),
-            size_mb: taille.trim().parse().unwrap_or(0.0),
+            // PowerShell formate les décimaux selon la culture du système :
+            // en français la virgule est le séparateur (« 12,5 »).
+            size_mb: taille.trim().replace(',', ".").parse().unwrap_or(0.0),
             title: titre.to_string(),
         });
     }
@@ -1333,9 +1352,18 @@ mod tests_winget {
         assert_eq!(maj[0].kind, "Driver");
         assert_eq!(maj[0].size_mb, 12.5);
         assert_eq!(maj[0].title, "Intel - Display 1.2.3");
-        // séparateur décimal FR (virgule) -> taille par défaut
-        assert_eq!(maj[1].size_mb, 0.0);
+        // séparateur décimal FR (virgule) -> converti correctement
+        assert_eq!(maj[1].size_mb, 250.25);
         assert_eq!(maj[1].title, "Mise à jour cumulative Windows 11 (KB5031234)");
+    }
+
+    #[test]
+    fn timeout_par_commande_borne() {
+        assert_eq!(resoudre_timeout(None), 120);
+        assert_eq!(resoudre_timeout(Some(60)), 60);
+        assert_eq!(resoudre_timeout(Some(3600)), 3600);
+        assert_eq!(resoudre_timeout(Some(0)), 1); // minimum
+        assert_eq!(resoudre_timeout(Some(999_999)), 7200); // plafond
     }
 
     #[test]

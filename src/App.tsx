@@ -37,6 +37,7 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
     type: "action",
     elevation: true,
     confirme: true,
+    timeoutSecs: 3600,
   },
   {
     label: "Contrôle rapide du magasin de composants",
@@ -45,6 +46,7 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
     type: "action",
     elevation: true,
     confirme: false,
+    timeoutSecs: 300,
   },
   {
     label: "Analyser le magasin de composants",
@@ -53,6 +55,7 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
     type: "action",
     elevation: true,
     confirme: true,
+    timeoutSecs: 3600,
   },
   {
     label: "Réparer le magasin de composants",
@@ -61,6 +64,7 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
     type: "action",
     elevation: true,
     confirme: true,
+    timeoutSecs: 7200,
   },
   {
     label: "Analyser le disque système",
@@ -69,6 +73,7 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
     type: "action",
     elevation: true,
     confirme: false,
+    timeoutSecs: 3600,
   },
   {
     label: "Vider le cache DNS",
@@ -77,15 +82,18 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
     type: "action",
     elevation: false,
     confirme: false,
+    timeoutSecs: 60,
   },
   {
     label: "Réinitialiser la pile réseau",
-    description: "réinitialise Winsock et le cache ARP — utile après une infection ou des soucis réseau",
+    description:
+      "réinitialise Winsock et le cache ARP — utile après une infection ou des soucis réseau. ⚠️ Redémarrage requis pour Winsock ; la connexion peut être brièvement coupée pendant l'opération",
     commande:
       "netsh winsock reset; netsh int ip reset; arp -d *; ipconfig /release; ipconfig /renew; ipconfig /flushdns",
     type: "action",
     elevation: true,
     confirme: true,
+    timeoutSecs: 300,
   },
   {
     label: "Vérifier et réparer les fichiers système en une passe",
@@ -94,6 +102,7 @@ const CORRECTIFS_SYSTEME: CommandeFix[] = [
     type: "action",
     elevation: true,
     confirme: true,
+    timeoutSecs: 7200,
   },
 ];
 
@@ -240,6 +249,7 @@ export default function App() {
     try {
       const res = await invoke<CommandResult>("run_diagnostic_command", {
         commande: cmd.commande,
+        timeoutSecs: cmd.timeoutSecs ?? null,
       });
       setTerminal((t) =>
         t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
@@ -396,6 +406,9 @@ export default function App() {
       );
     } finally {
       setRunningCmd(null);
+      // Rafraîchit la liste en arrière-plan : les mises à jour installées
+      // disparaissent, celles en attente de redémarrage restent listées.
+      chargerWu();
     }
   }
 

@@ -30,7 +30,7 @@
             "label": "Rapport d'énergie du système",
             "description": "Diagnostique la consommation et les veilles anormales",
             "commande": "powercfg /energy /duration 10",
-          "timeoutSecs": 900,
+            "timeoutSecs": 900,
             "type": "lecture",
             "elevation": true,
             "confirme": false
@@ -129,7 +129,7 @@
             "label": "Vérifier le système de fichiers (C:)",
             "description": "Analyse en ligne du volume C: sans interruption",
             "commande": "Repair-Volume -DriveLetter C -Scan",
-          "timeoutSecs": 1800,
+            "timeoutSecs": 1800,
             "type": "action",
             "elevation": true,
             "confirme": true
@@ -571,6 +571,158 @@
             "confirme": false
           }
         ]
+      },
+      {
+        "match": {
+          "provider": "EventLog",
+          "event_id": 6008
+        },
+        "titre": "Arrêt brutal du système (extinction non propre)",
+        "cause": "Windows a redémarré après un arrêt non planifié : coupure de courant, plantage matériel, blocage complet ou appui long sur le bouton d'alimentation.",
+        "etapes": [
+          "Vérifier si une mise à jour Windows était en cours à l'heure de l'arrêt.",
+          "Contrôler l'état S.M.A.R.T. et la température du disque système.",
+          "Rechercher un événement BugCheck 1001 ou Kernel-Power 41 juste avant : ils précisent la cause (BSOD, coupure).",
+          "Sur un portable, vérifier la santé de la batterie et l'alimentation."
+        ],
+        "categorie": "bsod",
+        "commandes": [
+          {
+            "label": "Historique des arrêts brusques et BSOD",
+            "description": "Derniers événements 6008 et 41 du canal System",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='System'; Id=41,6008} -MaxEvents 10 | Select-Object TimeCreated, Id, ProviderName | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-Kernel-Power",
+          "event_id": 506
+        },
+        "titre": "Système suspendu de force (énergie insuffisante)",
+        "cause": "Le système est passé en veille prolongée de façon forcée : la batterie était critique ou l'alimentation instable.",
+        "etapes": [
+          "Recharger complètement la batterie avant de reprendre le travail.",
+          "Sur une batterie ancienne, vérifier son état (rapport powercfg).",
+          "Si l'appareil est branché sur secteur, tester un autre câble/secteur."
+        ],
+        "categorie": "systeme",
+        "commandes": [
+          {
+            "label": "Rapport de batterie",
+            "description": "État de la batterie et des dernières décharges",
+            "commande": "powercfg /batteryreport /output $env:TEMP\\battery-report.html; Get-Content $env:TEMP\\battery-report.html -TotalCount 5",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "User32",
+          "event_id": 1074
+        },
+        "titre": "Redémarrage initié par un processus",
+        "cause": "Un programme ou un utilisateur a demandé explicitement le redémarrage : souvent une installation ou Windows Update.",
+        "etapes": [
+          "Consulter le message de l'événement : il nomme le processus qui a demandé le redémarrage.",
+          "Si c'est un installateur, vérifier que la mise à jour s'est bien terminée après le redémarrage.",
+          "Si le redémarrage est inattendu, rechercher le processus nommé dans la liste des programmes récemment installés."
+        ],
+        "categorie": "systeme",
+        "commandes": [
+          {
+            "label": "Qui a demandé le redémarrage ?",
+            "description": "Derniers redémarrages initiés (processus, utilisateur, motif)",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='System'; Id=1074} -MaxEvents 10 | Select-Object TimeCreated, Message | Format-List",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "disk",
+          "event_id": 154
+        },
+        "titre": "Le disque n'apprend pas son cache (données en danger)",
+        "cause": "Le disque n'a pas confirmé l'apprentissage de son cache d'écriture : risque de perte de données en cas de coupure, souvent le signe d'un disque défaillant ou d'un contrôleur dépassé.",
+        "etapes": [
+          "Sauvegarder immédiatement les données importantes de ce disque.",
+          "Vérifier l'état S.M.A.R.T. et la température du disque.",
+          "Si le disque est ancien (magnétique), planifier son remplacement.",
+          "Mettre à jour le pilote du contrôleur de stockage (Intel RST/AMD)."
+        ],
+        "categorie": "stockage",
+        "commandes": [
+          {
+            "label": "État S.M.A.R.T. du disque",
+            "description": "Santé et attributs de fiabilité des disques physiques",
+            "commande": "Get-PhysicalDisk | Get-StorageReliabilityCounter | Select-Object DeviceId, Temperature, Wear, ReadErrorsTotal, WriteErrorsTotal | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-WHEA-Logger",
+          "event_id": 46
+        },
+        "titre": "Erreur de lien PCIe (matériel)",
+        "cause": "Une connexion PCI Express a signalé une erreur : souvent une carte graphique, une carte NVMe ou la carte mère. Peut venir d'un mauvais enfichage ou d'un composant fatigué.",
+        "etapes": [
+          "Éteindre, débrancher, réenficher fermement la carte concernée.",
+          "Si l'erreur est fréquente, tester avec une autre carte ou un autre slot.",
+          "Mettre à jour le BIOS et les pilotes de la carte mère.",
+          "Surveiller les températures : une surchauffe provoque des erreurs PCIe."
+        ],
+        "categorie": "materiel",
+        "commandes": [
+          {
+            "label": "Historique des erreurs WHEA",
+            "description": "Erreurs matérielles WHEA du canal dédié",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-WHEA-Logger/Operational'} -MaxEvents 20 | Select-Object TimeCreated, Id, LevelDisplayName | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-WHEA-Logger",
+          "event_id": 47
+        },
+        "titre": "Correction d'erreur PCIe (avertissement)",
+        "cause": "Une erreur de lien PCIe a été corrigée automatiquement : le système fonctionne, mais l'erreur signale un signal marginal sur un lien matériel.",
+        "etapes": [
+          "Traitement identique à l'erreur 46, en moins urgent : surveiller la fréquence.",
+          "Si l'événement se répète plusieurs fois par jour, agir (réenfichage, pilotes, BIOS).",
+          "Vérifier que les connecteurs d'alimentation de la carte graphique sont bien enfichés."
+        ],
+        "categorie": "materiel"
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-WHEA-Logger",
+          "event_id": 1001
+        },
+        "titre": "Erreur matérielle non corrigée (WHEA)",
+        "cause": "Une erreur matérielle n'a pas pu être corrigée : le processeur, la mémoire ou un périphérique PCIe a produit une faute grave.",
+        "etapes": [
+          "Consulter le détail de l'événement : il identifie le composant en cause.",
+          "Sur une machine surcadencée, revenir aux fréquences et tensions d'usine.",
+          "Tester la mémoire (redémarrer sur l'outil de test mémoire Windows).",
+          "Vérifier les températures et le refroidissement."
+        ],
+        "categorie": "materiel"
       }
     ],
     "Application": [
@@ -642,6 +794,20 @@
             "confirme": false
           }
         ]
+      },
+      {
+        "match": {
+          "provider": "Windows Error Reporting",
+          "event_id": 1001
+        },
+        "titre": "Rapport d'erreur d'application (WER)",
+        "cause": "Une application a planté et son rapport a été enregistré : le nom de l'application fautive figure dans le message.",
+        "etapes": [
+          "Repérer l'application fautive dans le message de l'événement.",
+          "La mettre à jour, ou la réinstaller si le plantage se répète.",
+          "Vérifier les événements Application Error 1000 pour le même processus : le code de l'exception aide au diagnostic."
+        ],
+        "categorie": "application"
       }
     ],
     "Microsoft-Windows-Diagnostics-Performance/Operational": [
@@ -723,6 +889,32 @@
             "commande": "Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} -MaxEvents 20 | Select-Object TimeCreated, @{N='Compte';E={$_.Properties[5].Value}}, @{N='Source';E={$_.Properties[19].Value}} | Format-Table -AutoSize",
             "type": "lecture",
             "elevation": true,
+            "confirme": false
+          }
+        ]
+      }
+    ],
+    "Microsoft-Windows-Windows-Defender/Operational": [
+      {
+        "match": {
+          "provider": "Microsoft-Windows-Windows-Defender",
+          "event_id": 1116
+        },
+        "titre": "Antivirus : menace détectée",
+        "cause": "Microsoft Defender a détecté un logiciel malveillant actif. Le nom de la menace et le fichier concerné figurent dans le message.",
+        "etapes": [
+          "Ouvrir la Sécurité Windows et consulter l'historique de protection.",
+          "Si la détection se répète sur le même emplacement, examiner le logiciel installé depuis cette source.",
+          "Vérifier que Defender et ses définitions sont à jour."
+        ],
+        "categorie": "securite",
+        "commandes": [
+          {
+            "label": "Dernières détections de Defender",
+            "description": "Historique des menaces détectées par Microsoft Defender",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows-Defender/Operational'; Id=1116,1117} -MaxEvents 20 | Select-Object TimeCreated, Message | Format-List",
+            "type": "lecture",
+            "elevation": false,
             "confirme": false
           }
         ]

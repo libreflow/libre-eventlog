@@ -640,7 +640,26 @@ mod tests_winget {
     fn base_de_connaissances_valide() {
         let base = load_knowledge_base();
         assert!(base.len() >= 35, "base trop pauvre : {}", base.len());
+        // Invariant : les catégories forment un ensemble fermé connu —
+        // une coquille (Stockage vs stockage) créerait une catégorie
+        // fantôme dans les scores d'audit.
+        const CATEGORIES_CONNUES: &[&str] = &[
+            "materiel",
+            "stockage",
+            "systeme",
+            "bsod",
+            "reseau",
+            "application",
+            "demarrage",
+            "securite",
+        ];
         for m in base {
+            assert!(
+                CATEGORIES_CONNUES.contains(&m.entry.categorie.as_str()),
+                "catégorie inconnue {:?} (entrée : {})",
+                m.entry.categorie,
+                m.entry.titre
+            );
             assert!(
                 !(m.provider.is_empty() && m.event_id == 0),
                 "entrée sans critère de correspondance : {:?}",

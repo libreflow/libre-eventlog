@@ -288,6 +288,26 @@ export default function App() {
   });
   const searchRef = useRef<HTMLInputElement>(null);
   const chargerRef = useRef<() => void>(() => {});
+  const detailRef = useRef<HTMLElement>(null);
+  const [terminalHauteur, setTerminalHauteur] = useState(240);
+  const dragTerminal = useRef<{ y: number; h: number } | null>(null);
+
+  function commencerRedimension(e: React.PointerEvent) {
+    dragTerminal.current = { y: e.clientY, h: terminalHauteur };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function bougerRedimension(e: React.PointerEvent) {
+    if (!dragTerminal.current) return;
+    const delta = dragTerminal.current.y - e.clientY;
+    setTerminalHauteur(
+      Math.min(600, Math.max(140, dragTerminal.current.h + delta)),
+    );
+  }
+
+  function finirRedimension() {
+    dragTerminal.current = null;
+  }
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
@@ -604,6 +624,29 @@ export default function App() {
     }
   }
 
+  // Navigation clavier entre les lignes (Flèche haut/bas).
+  function naviguerClavier(e: React.KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (filtres.length === 0) return;
+    e.preventDefault();
+    const idx = selected ? filtres.findIndex((ev) => ev === selected) : -1;
+    const suivant =
+      e.key === "ArrowDown"
+        ? Math.min(filtres.length - 1, idx + 1)
+        : Math.max(0, idx - 1);
+    selectionner(filtres[suivant]);
+  }
+
+  // Sur écran étroit, la sélection d'une ligne fait défiler jusqu'au
+  // panneau détail (sinon l'utilisateur ne voit pas qu'il s'est ouvert).
+  useEffect(() => {
+    if (!selected) return;
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+
   const canauxDisponibles = useMemo(
     () => ["Tous", ...Array.from(new Set(events.map((e) => e.canal)))],
     [events],
@@ -869,6 +912,7 @@ export default function App() {
           <HeartPulse className="icon" aria-hidden="true" />
           Audit de santé
         </button>
+        <div className="toolbar-filtres" role="group" aria-label="Filtres de la liste">
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
           {canauxDisponibles.map((c) => (
             <option key={c}>{c}</option>
@@ -924,6 +968,7 @@ export default function App() {
           <option value="15">15 min</option>
           <option value="30">30 min</option>
         </select>
+        </div>
         <div className="search">
           <Search className="search-icon" aria-hidden="true" />
           <input
@@ -960,7 +1005,12 @@ export default function App() {
       )}
 
       <div className={`layout ${terminalOuvert ? "avec-terminal" : ""}`}>
-        <div className="table-wrap" role="region" aria-label="Liste des événements">
+        <div
+          className="table-wrap"
+          role="region"
+          aria-label="Liste des événements"
+          onKeyDown={naviguerClavier}
+        >
           <table className="events-table">
             <thead>
               <tr>
@@ -1041,7 +1091,7 @@ export default function App() {
           </table>
         </div>
 
-        <aside className="detail" aria-live="polite">
+        <aside className="detail" aria-live="polite" ref={detailRef}>
           {!selected && (
             <div className="detail-empty">
               <span className="icon-circle">
@@ -1191,7 +1241,22 @@ export default function App() {
       </div>
 
       {terminalOuvert && (
-        <div className="terminal" role="region" aria-label="Terminal des commandes exécutées">
+        <div
+          className="terminal"
+          role="region"
+          aria-label="Terminal des commandes exécutées"
+          style={{ flexBasis: terminalHauteur }}
+        >
+          <div
+            className="terminal-poignee"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Redimensionner le terminal"
+            onPointerDown={commencerRedimension}
+            onPointerMove={bougerRedimension}
+            onPointerUp={finirRedimension}
+            onPointerCancel={finirRedimension}
+          />
           <div className="terminal-head">
             <span className="terminal-title">
               <TerminalSquare className="icon" aria-hidden="true" />

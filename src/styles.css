@@ -178,9 +178,33 @@ body {
 
 .toolbar {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* Cluster des filtres : visuellement groupés, hauteur homogène */
+.toolbar-filtres {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.toolbar-filtres select {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  background: transparent;
+  border-color: transparent;
+}
+
+.toolbar-filtres select:hover {
+  background: var(--surface-2);
+  border-color: var(--border-soft);
 }
 
 .toolbar select,
@@ -755,6 +779,34 @@ tr:focus-visible {
   box-shadow: var(--shadow);
 }
 
+/* Poignée de redimensionnement du terminal (glisser) */
+.terminal-poignee {
+  height: 7px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-soft);
+  touch-action: none;
+  position: relative;
+}
+
+.terminal-poignee::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 42px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.terminal-poignee:hover::after {
+  background: var(--accent);
+}
+
 .terminal-head {
   display: flex;
   align-items: center;
@@ -854,8 +906,14 @@ tr:focus-visible {
   color: var(--muted);
 }
 
+/* Bouton de restauration flottant : ne perturbe pas la mise en page */
 .terminal-restore {
-  align-self: flex-start;
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 60;
+  box-shadow: var(--shadow-lg);
+  border-radius: 999px;
 }
 
 /* ---------- Modale ---------- */
@@ -1280,6 +1338,15 @@ tr:focus-visible {
   .detail {
     overflow-y: auto;
   }
+
+  .modal-actions {
+    flex-wrap: wrap;
+  }
+
+  .modal-actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1308,8 +1375,21 @@ tr:focus-visible {
     flex: 1;
   }
 
+  .toolbar-filtres {
+    width: 100%;
+  }
+
+  .toolbar-filtres select {
+    flex: 1;
+  }
+
   .search {
     min-width: 100%;
+  }
+
+  /* Terminal : hauteur proportionnelle sur mobile, poignée conservée */
+  .terminal {
+    flex: 0 0 38vh !important;
   }
 }
 

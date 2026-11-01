@@ -62,12 +62,22 @@ export default function App() {
   const [runningCmd, setRunningCmd] = useState<string | null>(null);
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
+  const diagSeq = useRef(0);
 
   useEffect(() => {
     invoke<boolean>("check_elevation")
       .then(setElevated)
       .catch(() => setElevated(false));
   }, []);
+
+  useEffect(() => {
+    if (!confirmCmd) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setConfirmCmd(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmCmd]);
 
   useEffect(() => {
     document.title = selected
@@ -98,16 +108,19 @@ export default function App() {
   }
 
   async function selectionner(e: CriticalEvent) {
+    // Séquence : évite qu'un diagnostic obsolète écrase celui d'un
+    // événement sélectionné plus récemment (clics rapides).
+    const seq = ++diagSeq.current;
     setSelected(e);
     setDiagnostic(null);
     setDiagLoading(true);
     try {
       const d = await invoke<Diagnostic>("get_diagnostic", { event: e });
-      setDiagnostic(d);
+      if (diagSeq.current === seq) setDiagnostic(d);
     } catch {
-      setDiagnostic({ event: e, fix: null });
+      if (diagSeq.current === seq) setDiagnostic({ event: e, fix: null });
     } finally {
-      setDiagLoading(false);
+      if (diagSeq.current === seq) setDiagLoading(false);
     }
   }
 
@@ -418,6 +431,7 @@ export default function App() {
                         {diagnostic.fix.commandes.map((cmd, i) => {
                           const blocked = cmd.elevation && elevated === false;
                           const running = runningCmd === cmd.commande;
+                          const busy = runningCmd !== null;
                           return (
                             <div key={i} className={`cmd-card ${blocked ? "blocked" : ""}`}>
                               <div className="cmd-head">
@@ -430,7 +444,7 @@ export default function App() {
                                 <button
                                   className="btn small"
                                   onClick={() => demanderExecution(cmd)}
-                                  disabled={blocked || running}
+                                  disabled={blocked || busy}
                                   title={
                                     blocked
                                       ? "Nécessite de relancer l'application en administrateur"

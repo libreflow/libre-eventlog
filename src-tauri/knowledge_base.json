@@ -21,7 +21,7 @@
           {
             "label": "État de l'alimentation et batterie",
             "description": "Rapport détaillé sur la batterie et l'alimentation",
-            "commande": "powercfg /batteryreport /output %TEMP%\\battery-report.html; Get-Content %TEMP%\\battery-report.html -TotalCount 5",
+            "commande": "powercfg /batteryreport /output $env:TEMP\\battery-report.html; Get-Content $env:TEMP\\battery-report.html -TotalCount 5",
             "type": "lecture",
             "elevation": false,
             "confirme": false

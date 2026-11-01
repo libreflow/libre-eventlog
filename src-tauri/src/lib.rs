@@ -80,110 +80,177 @@ fn severity_label(level: u8) -> String {
 }
 
 #[tauri::command]
-pub fn get_critical_events() -> Result<Vec<CriticalEvent>, String> {
-    let canaux = ["System", "Application"];
+fn get_critical_events() -> Result<Vec<CriticalEvent>, String> {
     let mut events: Vec<CriticalEvent> = Vec::new();
-
-    for canal in canaux {
-        let query = "*[System[(Level=1 or Level=2)]]";
-        let output = Command::new("wevtutil")
-            .args([
-                "qe",
-                canal,
-                &format!("/q:{}", query),
-                "/c:50",
-                "/rd:true",
-                "/f:json",
-            ])
-            .output()
-            .map_err(|e| format!("Impossible d'exécuter wevtutil : {}", e))?;
-
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(format!(
-                "Accès refusé ou canal inaccessible ({}) : {}",
-                canal, err
-            ));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        events.extend(parse_wevtutil_json(&stdout, canal));
+    for canal in ["System", "Application"] {
+        events.extend(query_canal(canal)?);
     }
-
     Ok(events)
 }
 
-fn parse_wevtutil_json(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
+fn query_canal(canal: &str) -> Result<Vec<CriticalEvent>, String> {
+    // wevtutil ne supporte que les formats XML, Text et RenderedXml
+    // (pas de JSON) : la sortie XML est parsée par parse_wevtutil_xml.
+    let query = "*[System[(Level=1 or Level=2)]]";
+    let output = Command::new("wevtutil")
+        .args([
+            "qe",
+            canal,
+            &format!("/q:{}", query),
+            "/c:50",
+            "/rd:true",
+            "/f:XML",
+        ])
+        .creation_flags_windows_no_window()
+        .output()
+        .map_err(|e| format!("Impossible d'exécuter wevtutil : {}", e))?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!(
+            "Accès refusé ou canal inaccessible ({}) : {}",
+            canal, err
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    Ok(parse_wevtutil_xml(&stdout, canal))
+}
+
+// wevtutil émet des timestamps avec jusqu'à 9 chiffres de fraction
+// (ex. 2026-10-31T23:41:02.1836450Z) ; on normalise en RFC3339
+// millisecondes pour que new Date() côté frontend les parse toujours.
+fn normalize_timestamp(raw: &str) -> String {
+    match chrono::DateTime::parse_from_rfc3339(raw) {
+        Ok(dt) => dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        Err(_) => raw.to_string(),
+    }
+}
+
+fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+
+    let mut reader = Reader::from_str(stdout);
+    reader.config_mut().trim_text(true);
+
     let mut events = Vec::new();
+    let mut buf = Vec::new();
 
-    // wevtutil /f:json renvoie soit un tableau, soit un objet unique
-    let trimmed = stdout.trim();
+    // Champs de l'événement en cours de lecture
+    let mut provider = String::new();
+    let mut event_id: u32 = 0;
+    let mut level: u8 = 0;
+    let mut timestamp = String::new();
+    let mut event_data: Option<serde_json::Map<String, serde_json::Value>> = None;
+    let mut pending_data_name: Option<String> = None;
+    let mut cur_elem = String::new();
 
-    let json_value: serde_json::Value = match serde_json::from_str(trimmed) {
-        Ok(v) => v,
-        Err(_) => return events,
-    };
-
-    let items: Vec<serde_json::Value> = match json_value {
-        serde_json::Value::Array(arr) => arr,
-        obj @ serde_json::Value::Object(_) => vec![obj],
-        _ => return events,
-    };
-
-    for item in items {
-        let system = match item.get("System") {
-            Some(s) => s,
-            None => continue,
-        };
-
-        let event_id = system
-            .get("EventID")
-            .and_then(|v| {
-                v.as_u64()
-                    .or_else(|| v.get("#text").and_then(|t| t.as_u64()))
+    fn attr_value(e: &quick_xml::events::BytesStart<'_>, key: &str) -> Option<String> {
+        e.attributes()
+            .flatten()
+            .find(|a| a.key.as_ref() == key)
+            .and_then(|a| {
+                a.normalized_value(quick_xml::XmlVersion::Explicit1_0)
+                    .ok()
+                    .map(|s| s.into_owned())
             })
-            .unwrap_or(0) as u32;
+    }
 
-        let level = system
-            .get("Level")
-            .and_then(|v| {
-                v.as_u64()
-                    .or_else(|| v.get("#text").and_then(|t| t.as_u64()))
-            })
-            .unwrap_or(0) as u8;
-
-        if level > 2 {
-            continue;
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(e)) => {
+                let name = e.name().as_ref().to_string();
+                match name.as_str() {
+                    "Provider" => {
+                        provider = attr_value(&e, "Name").unwrap_or_default();
+                    }
+                    "TimeCreated" => {
+                        if let Some(t) = attr_value(&e, "SystemTime") {
+                            timestamp = normalize_timestamp(&t);
+                        }
+                    }
+                    "EventData" => {
+                        event_data = Some(serde_json::Map::new());
+                    }
+                    "Data" => {
+                        let idx = event_data.as_ref().map(|m| m.len()).unwrap_or(0);
+                        let name = attr_value(&e, "Name")
+                            .unwrap_or_else(|| format!("Data {}", idx));
+                        pending_data_name = Some(name);
+                    }
+                    _ => {}
+                }
+                cur_elem = name;
+            }
+            Ok(Event::Empty(e)) => {
+                // Éléments auto-fermants : <Provider/>, <TimeCreated/>,
+                // <Data Name='X'/> sans valeur (chaîne vide insérée)
+                match e.name().as_ref() {
+                    "Provider" => {
+                        provider = attr_value(&e, "Name").unwrap_or_default();
+                    }
+                    "TimeCreated" => {
+                        if let Some(t) = attr_value(&e, "SystemTime") {
+                            timestamp = normalize_timestamp(&t);
+                        }
+                    }
+                    "Data" => {
+                        if let Some(map) = event_data.as_mut() {
+                            let key = attr_value(&e, "Name")
+                                .unwrap_or_else(|| format!("Data {}", map.len()));
+                            map.insert(key, serde_json::Value::String(String::new()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(t)) => {
+                let txt = t.xml10_content().into_owned();
+                match cur_elem.as_str() {
+                    "EventID" => event_id = txt.parse().unwrap_or(0),
+                    "Level" => level = txt.parse().unwrap_or(0),
+                    "Data" => {
+                        if let (Some(map), Some(name)) =
+                            (event_data.as_mut(), pending_data_name.take())
+                        {
+                            map.insert(name, serde_json::Value::String(txt));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::End(e)) => {
+                if e.name().as_ref() == "Event" {
+                    if level <= 2 {
+                        let message_raw = event_data
+                            .as_ref()
+                            .map(|m| serde_json::to_string_pretty(m).unwrap_or_default())
+                            .unwrap_or_default();
+                        events.push(CriticalEvent {
+                            timestamp: timestamp.clone(),
+                            canal: canal.to_string(),
+                            provider: provider.clone(),
+                            event_id,
+                            level,
+                            severity: severity_label(level),
+                            message_raw,
+                        });
+                    }
+                    provider.clear();
+                    event_id = 0;
+                    level = 0;
+                    timestamp.clear();
+                    event_data = None;
+                    pending_data_name = None;
+                }
+                cur_elem.clear();
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
         }
-
-        let provider = system
-            .get("Provider")
-            .and_then(|p| p.get("Name"))
-            .and_then(|n| n.as_str())
-            .unwrap_or("Inconnu")
-            .to_string();
-
-        let timestamp = system
-            .get("TimeCreated")
-            .and_then(|t| t.get("SystemTime"))
-            .and_then(|s| s.as_str())
-            .unwrap_or("")
-            .to_string();
-
-        let message_raw = item
-            .get("EventData") // pas toujours présent
-            .map(|d| serde_json::to_string_pretty(d).unwrap_or_default())
-            .unwrap_or_default();
-
-        events.push(CriticalEvent {
-            timestamp,
-            canal: canal.to_string(),
-            provider,
-            event_id,
-            level,
-            severity: severity_label(level),
-            message_raw,
-        });
+        buf.clear();
     }
 
     events
@@ -201,7 +268,6 @@ const PS_DENYLIST: &[&str] = &[
     "limit-eventlog",
     "clear-eventlog",
     "reset-machinepassword",
-    "format",
     "rd /s",
     "del /",
     "diskpart",
@@ -254,12 +320,14 @@ impl NoWindow for Command {
 }
 
 #[tauri::command]
-pub fn check_elevation() -> bool {
+fn check_elevation() -> bool {
     is_elevated()
 }
 
 #[tauri::command]
-pub fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
+fn run_diagnostic_command(commande: String) -> Result<CommandResult, String> {
+    const TIMEOUT_SECONDES: u64 = 120;
+
     commande_autorisee(&commande)?;
 
     let elevated = is_elevated();
@@ -268,7 +336,7 @@ pub fn run_diagnostic_command(commande: String) -> Result<CommandResult, String>
     // PowerShell : -NoProfile évite les scripts de profil, -NonInteractive
     // empêche toute invite bloquante, et CREATE_NO_WINDOW garantit qu'aucune
     // fenêtre console n'apparaît : tout est capturé et renvoyé à l'UI.
-    let output = Command::new("powershell.exe")
+    let mut child = Command::new("powershell.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -277,9 +345,35 @@ pub fn run_diagnostic_command(commande: String) -> Result<CommandResult, String>
             "-Command",
             &commande,
         ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .creation_flags_windows_no_window()
-        .output()
+        .spawn()
         .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+
+    // Filet de sécurité : une commande bloquée trop longtemps (ex. scan long
+    // ou cmdlet interactive malgré -NonInteractive) est tuée après 120 s.
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if start.elapsed().as_secs() >= TIMEOUT_SECONDES {
+                    let _ = child.kill();
+                    return Err(format!(
+                        "Commande annulée : délai de {} s dépassé.",
+                        TIMEOUT_SECONDES
+                    ));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("Erreur pendant l'exécution : {}", e)),
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Impossible de lire la sortie : {}", e))?;
 
     Ok(CommandResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -291,7 +385,7 @@ pub fn run_diagnostic_command(commande: String) -> Result<CommandResult, String>
 }
 
 #[tauri::command]
-pub fn get_diagnostic(event: CriticalEvent) -> Result<Diagnostic, String> {
+fn get_diagnostic(event: CriticalEvent) -> Result<Diagnostic, String> {
     let fix = lookup_fix(&event.provider, event.event_id);
     Ok(Diagnostic { event, fix })
 }
@@ -395,4 +489,86 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Libre EventLog");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Sortie réelle de : wevtutil qe System /q:... /c:1 /rd:true /f:XML
+    const SAMPLE_XML: &str = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Volsnap' Guid='{cb017cd2-1f37-4e65-82bc-3e91f6a37559}' EventSourceName='volsnap'/><EventID Qualifiers='49158'>25</EventID><Version>0</Version><Level>2</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2026-10-31T23:41:02.1836450Z'/><EventRecordID>14312</EventRecordID><Correlation/><Execution ProcessID='4' ThreadID='7028'/><Channel>System</Channel><Computer>FSOCIETY</Computer><Security/></System><EventData><Data Name='DeviceName'>\Device\HarddiskVolumeShadowCopy5</Data><Data Name='VolumeName'>C:</Data><Data Name='NTSTATUS'>00000000</Data></EventData></Event>"#;
+
+    #[test]
+    fn parse_xml_evenement_unique() {
+        let events = parse_wevtutil_xml(SAMPLE_XML, "System");
+        assert_eq!(events.len(), 1);
+        let e = &events[0];
+        assert_eq!(e.provider, "Volsnap");
+        assert_eq!(e.event_id, 25);
+        assert_eq!(e.level, 2);
+        assert_eq!(e.severity, "Erreur");
+        assert_eq!(e.canal, "System");
+        // fraction 7 chiffres normalisée en millisecondes
+        assert_eq!(e.timestamp, "2026-10-31T23:41:02.183Z");
+        assert!(e.message_raw.contains("DeviceName"));
+        assert!(e.message_raw.contains("HarddiskVolumeShadowCopy5"));
+    }
+
+    #[test]
+    fn parse_xml_plusieurs_evenements() {
+        // wevtutil émet les événements les uns à la suite (un par ligne)
+        let stdout = format!("{}\n{}", SAMPLE_XML, SAMPLE_XML);
+        let events = parse_wevtutil_xml(&stdout, "System");
+        assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn parse_xml_filtre_niveaux_superieurs() {
+        let level4 = SAMPLE_XML.replace("<Level>2</Level>", "<Level>4</Level>");
+        assert!(parse_wevtutil_xml(&level4, "System").is_empty());
+    }
+
+    #[test]
+    fn parse_xml_champs_manquants() {
+        let mute = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='X'/><EventID>1</EventID><Level>1</Level></System></Event>"#;
+        let events = parse_wevtutil_xml(mute, "Application");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].provider, "X");
+        assert_eq!(events[0].event_id, 1);
+        assert_eq!(events[0].severity, "Critique");
+        assert_eq!(events[0].message_raw, "");
+    }
+
+    #[test]
+    fn denylist_bloque_destructif_autorise_lecture() {
+        // cmdlets de mise en forme (lecture seule) utilisées par la base
+        assert!(commande_autorisee(
+            "Get-PhysicalDisk | Select-Object FriendlyName | Format-Table -AutoSize"
+        )
+        .is_ok());
+        assert!(commande_autorisee("Get-WinEvent -MaxEvents 1 | Format-List").is_ok());
+        // opérations destructives
+        assert!(commande_autorisee("Format-Volume -DriveLetter C").is_err());
+        assert!(commande_autorisee(r"Remove-Item C:\Windows\Temp\x").is_err());
+        assert!(commande_autorisee(r"REG DELETE HKLM\Software\X /f").is_err());
+        assert!(commande_autorisee(r"cipher /w:C:\").is_err());
+    }
+
+    // Intégration : exécute le vrai wevtutil avec les arguments de
+    // production et vérifie que le parsing aboutit.
+    #[test]
+    fn wevtutil_reel_system() {
+        let events = query_canal("System").expect("la requête wevtutil doit réussir");
+        for e in &events {
+            assert_eq!(e.canal, "System");
+            assert!(e.level == 1 || e.level == 2, "level inattendu : {}", e.level);
+            assert!(!e.provider.is_empty());
+            // timestamp normalisé, parsable par new Date()
+            assert!(
+                chrono::DateTime::parse_from_rfc3339(&e.timestamp).is_ok(),
+                "timestamp non RFC3339 : {}",
+                e.timestamp
+            );
+        }
+    }
 }

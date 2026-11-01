@@ -65,5 +65,5 @@ pnpm tauri build # MSI + NSIS dans src-tauri/target/release/bundle
 ## Tests
 
 ```bash
-cd src-tauri && cargo test   # 23 tests (unitaires + intégrations réelles lecture seule)
+cd src-tauri && cargo test   # 25 tests (unitaires + intégrations réelles lecture seule)
 ```

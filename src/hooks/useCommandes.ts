@@ -128,7 +128,7 @@ export function useCommandes() {
     cleRunning: string,
     tache: (entreeId: number) => Promise<CommandResult>,
     annulable = true,
-  ) {
+  ): Promise<CommandResult | null> {
     const id = nextId.current++;
     const time = new Date().toLocaleTimeString("fr-FR");
     setTerminalOuvert(true);
@@ -155,6 +155,7 @@ export function useCommandes() {
         t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
       );
       notifierFin(label, true, Date.now() - debut);
+      return res;
     } catch (err) {
       setTerminal((t) =>
         t.map((e) =>
@@ -162,6 +163,7 @@ export function useCommandes() {
         ),
       );
       notifierFin(label, false, Date.now() - debut);
+      return null;
     } finally {
       setRunningCmd(null);
     }
@@ -195,13 +197,14 @@ export function useCommandes() {
     }
   }
 
-  function demanderExecution(cmd: CommandeFix) {
+  function demanderExecution(cmd: CommandeFix): Promise<CommandResult | null> {
     if (cmd.confirme) {
       setConfirmCmd(cmd);
       tacheConfirmee.current = null;
-    } else {
-      executerCommande(cmd);
+      // Le résultat arrivera par executerConfirme après confirmation.
+      return Promise.resolve(null);
     }
+    return executerCommande(cmd);
   }
 
   // Confirmation d'une tâche qui n'est PAS un correctif du catalogue
@@ -228,20 +231,19 @@ export function useCommandes() {
 
   // Appelé par la modale de confirmation : exécute la tâche confirmée
   // (désignée par demanderTacheTerminal) ou le correctif du catalogue.
-  function executerConfirme(cmd: CommandeFix) {
+  function executerConfirme(cmd: CommandeFix): Promise<CommandResult | null> {
     const tache = tacheConfirmee.current;
     tacheConfirmee.current = null;
     if (tache) {
-      lancerTacheTerminal(
+      return lancerTacheTerminal(
         cmd.label,
         cmd.commande,
         cleCommande(cmd),
         tache,
         cmd.annulable !== false,
       );
-    } else {
-      executerCommande(cmd);
     }
+    return executerCommande(cmd);
   }
 
   return {

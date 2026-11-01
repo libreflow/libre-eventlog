@@ -388,3 +388,50 @@ mod tests {
         );
     }
 }
+
+// Compte les occurrences d'un problème précis (provider + eventId) dans un
+// canal, éventuellement dans une fenêtre de temps (timediff). Sert à la
+// vérification post-correctif : « combien d'occurrences depuis l'exécution
+// du correctif ? ». Le nom du provider est revalidé : il est injecté dans
+// une requête XPath, jamais saisi librement par l'utilisateur au-delà des
+// valeurs collectées par wevtutil lui-même.
+#[tauri::command]
+pub async fn compter_evenements(
+    canal: String,
+    provider: String,
+    event_id: u32,
+    depuis_ms: Option<u64>,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if provider.contains(['\'', '"', '<', '>', '&']) || provider.is_empty() {
+            return Err("Nom de source invalide.".to_string());
+        }
+        let filtre = match depuis_ms {
+            Some(ms) => format!(
+                "*[System[(Provider[@Name='{provider}'] and EventID={event_id}) and timediff(@SystemTime) <= {ms}]]"
+            ),
+            None => format!("*[System[(Provider[@Name='{provider}'] and EventID={event_id})]]"),
+        };
+        let sortie = Command::new("wevtutil")
+            .args([
+                "qe",
+                &canal,
+                &format!("/q:{filtre}"),
+                "/c:2000",
+                "/rd:true",
+                "/f:XML",
+            ])
+            .creation_flags_windows_no_window()
+            .output()
+            .map_err(|e| format!("Impossible d'exécuter wevtutil : {e}"))?;
+        if !sortie.status.success() {
+            let err = decoder_console(&sortie.stderr).trim().to_string();
+            return Err(format!("Canal inaccessible ({canal}) : {err}"));
+        }
+        // Chaque événement = une ligne <Event …> dans la sortie XML.
+        let xml = decoder_console(&sortie.stdout);
+        Ok(xml.matches("<Event ").count() as u32)
+    })
+    .await
+    .map_err(|e| format!("Le comptage a échoué : {}", e))?
+}

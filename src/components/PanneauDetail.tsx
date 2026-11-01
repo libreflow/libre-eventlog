@@ -1,4 +1,4 @@
-import { ExternalLink, FileSearch, Filter, Loader2, Lock, Play, Search, AlertTriangle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, FileSearch, Filter, Loader2, Lock, Play, Search } from "lucide-react";
 import type { CriticalEvent, Diagnostic } from "../types";
 import { LienExterne } from "./LienExterne";
 import { formatDate, lienRecherche, severityClass } from "../lib/evenements";
@@ -18,6 +18,10 @@ export function PanneauDetail({
   onFiltreProvider,
   message,
   messageChargement,
+  verification,
+  verificationCompte,
+  verificationChargement,
+  onVerifier,
 }: {
   selected: CriticalEvent | null;
   diagnostic: Diagnostic | null;
@@ -29,6 +33,10 @@ export function PanneauDetail({
   onFiltreProvider: (provider: string) => void;
   message: string | null;
   messageChargement: boolean;
+  verification: { date: number } | null;
+  verificationCompte: number | null;
+  verificationChargement: boolean;
+  onVerifier: () => void;
 }) {
   return (
     <aside className="detail" aria-live="polite" aria-busy={diagLoading} ref={detailRef}>
@@ -72,6 +80,41 @@ export function PanneauDetail({
               )}
             </div>
           </div>
+
+          {verification && (
+            <div className="section">
+              <h3>Vérification post-correctif</h3>
+              <div className="fix-footer">
+                <span className="chip mono">
+                  Correctif appliqué le{" "}
+                  {formatDate(new Date(verification.date).toISOString())}
+                </span>
+                <button
+                  className="btn small"
+                  onClick={onVerifier}
+                  disabled={verificationChargement}
+                  title="Compte les occurrences de ce problème depuis le correctif — 0 signifie que le problème s'est arrêté"
+                >
+                  {verificationChargement ? (
+                    <Loader2 className="icon spin" aria-hidden="true" />
+                  ) : (
+                    <CheckCircle2 className="icon" aria-hidden="true" />
+                  )}
+                  Vérifier
+                </button>
+                {verificationCompte != null && !verificationChargement && (
+                  <span
+                    className={`badge ${verificationCompte === 0 ? "avertissement" : "critique"}`}
+                  >
+                    <span className="badge-point" aria-hidden="true" />
+                    {verificationCompte === 0
+                      ? "0 occurrence depuis le correctif — problème résolu"
+                      : `${verificationCompte} occurrence(s) depuis le correctif`}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {(message || messageChargement) && (
             <div className="section">

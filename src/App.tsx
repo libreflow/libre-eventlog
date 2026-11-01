@@ -40,6 +40,12 @@ import { copierTexte } from "./lib/pressepapiers";
 import { rapportMarkdown } from "./lib/rapport";
 import { Layers, Radio } from "lucide-react";
 import { MAJ_APPS } from "./lib/catalogue";
+import {
+  enregistrerVerification,
+  fenetreDepuisVerification,
+  lireVerifications,
+} from "./lib/verifications";
+import type { VerificationCorrectif } from "./lib/verifications";
 import { telechargerCsv } from "./lib/export";
 import { enregistrerAudit, evolution, lireHistorique, type EntreeAudit } from "./lib/audits";
 
@@ -133,6 +139,9 @@ export default function App() {
   const [vue, setVue] = useState<"evenements" | "problemes">("evenements");
   const [canauxOuverte, setCanauxOuverte] = useState(false);
   const [chargementJournal, setChargementJournal] = useState(false);
+  const [verifications, setVerifications] = useState<Record<string, VerificationCorrectif>>({});
+  const [verificationCompte, setVerificationCompte] = useState<number | null>(null);
+  const [verificationChargement, setVerificationChargement] = useState(false);
   const { theme, basculerTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLElement>(null);
@@ -245,6 +254,50 @@ export default function App() {
   // Désinstallation d'une application : confirmation systématique (modale),
   // exécution dédiée côté backend (id revalidé), sortie streamée et
   // journalisée dans le terminal.
+  // Vérification post-correctif (3.4) : un correctif réussi sur
+  // l'événement sélectionné marque l'instant T. « Vérifier » compte ensuite
+  // les occurrences survenues depuis — preuve que le problème s'est arrêté
+  // ou non.
+  function marquerCorrectifReussi() {
+    if (selected && selected.recordId != null) {
+      setVerifications(enregistrerVerification(selected));
+      setVerificationCompte(null);
+    }
+  }
+
+  async function executerEtVerifier(cmd: import("./types").CommandeFix) {
+    const res = await demanderExecution(cmd);
+    if (res && res.exitCode === 0) marquerCorrectifReussi();
+  }
+
+  // « Vérifier » : compte les occurrences du problème depuis l'instant du
+  // correctif — 0 nouvelle occurrence = le problème s'est arrêté.
+  async function verifierOccurrences() {
+    if (!selected) return;
+    const fenetre = fenetreDepuisVerification(verifications, selected);
+    if (fenetre == null) return;
+    setVerificationChargement(true);
+    try {
+      const compte = await invoke<number>("compter_evenements", {
+        canal: selected.canal,
+        provider: selected.provider,
+        eventId: selected.eventId,
+        depuisMs: fenetre,
+      });
+      setVerificationCompte(compte);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setVerificationChargement(false);
+    }
+  }
+
+  // Nouvelle sélection : le comptage de vérification précédent ne
+  // s'applique plus.
+  useEffect(() => {
+    setVerificationCompte(null);
+  }, [selected]);
+
   function demanderDesinstallation(p: WingetPackage) {
     demanderTacheTerminal(
       {
@@ -386,6 +439,7 @@ export default function App() {
 
   useEffect(() => {
     setHistoriqueAudits(lireHistorique());
+    setVerifications(lireVerifications());
   }, []);
 
   useEffect(() => {
@@ -759,11 +813,21 @@ export default function App() {
           diagLoading={diagLoading}
           elevated={elevated}
           runningCmd={runningCmd}
-          onDemanderExecution={demanderExecution}
+          onDemanderExecution={executerEtVerifier}
           detailRef={detailRef}
           onFiltreProvider={(p) => setProvider(p)}
           message={message}
           messageChargement={messageChargement}
+          verification={
+            selected
+              ? verifications[
+                  `${selected.canal}/${selected.provider}/${selected.eventId}`
+                ] ?? null
+              : null
+          }
+          verificationCompte={verificationCompte}
+          verificationChargement={verificationChargement}
+          onVerifier={verifierOccurrences}
         />
       </div>
 
@@ -859,9 +923,10 @@ export default function App() {
           cmd={confirmCmd}
           elevated={elevated}
           onAnnuler={() => setConfirmCmd(null)}
-          onExecuter={(c) => {
+          onExecuter={async (c) => {
             setConfirmCmd(null);
-            executerConfirme(c);
+            const res = await executerConfirme(c);
+            if (res && res.exitCode === 0) marquerCorrectifReussi();
           }}
         />
       )}

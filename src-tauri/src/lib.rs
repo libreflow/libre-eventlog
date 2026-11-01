@@ -548,8 +548,17 @@ fn is_elevated() -> bool {
 }
 
 // Relance l'application en administrateur (invite UAC) via ShellExecute.
+// async + spawn_blocking : la commande attend jusqu'à 30 s que
+// l'utilisateur réponde à l'invite UAC — en synchrone, elle gèlerait le
+// thread principal et toute l'interface.
 #[tauri::command]
-fn relancer_admin() -> Result<(), String> {
+async fn relancer_admin() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(relancer_admin_bloquant)
+        .await
+        .map_err(|e| format!("La relance en administrateur a échoué : {}", e))?
+}
+
+fn relancer_admin_bloquant() -> Result<(), String> {
     let exe =
         std::env::current_exe().map_err(|e| format!("Exécutable introuvable : {}", e))?;
     // Échappement PowerShell des guillemets simples ('' dans une chaîne
@@ -595,9 +604,13 @@ impl NoWindow for Command {
     }
 }
 
+// whoami /groups est un processus externe (~100 ms) : async pour ne pas
+// bloquer le thread principal au démarrage de l'interface.
 #[tauri::command]
-fn check_elevation() -> bool {
-    is_elevated()
+async fn check_elevation() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(is_elevated)
+        .await
+        .map_err(|e| format!("La vérification des droits a échoué : {}", e))
 }
 
 // Attend la fin d'un processus enfant avec un délai maximal ; au-delà,

@@ -215,6 +215,31 @@ fn collecter_evenements(limit: u32, avert: bool) -> CollecteResult {
     resultat
 }
 
+// wevtutil émet son XML en UTF-8 mais ses messages d'erreur dans le code
+// page ANSI (Windows-1252 en français : « Accès refusé », « Le canal
+// n'existe pas »…). UTF-8 strict d'abord, repli Windows-1252 sinon :
+// identique à Latin-1 pour 0xA0-0xFF, table dédiée pour 0x80-0x9F.
+fn decoder_console(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.to_string();
+    }
+    const CP1252_HAUT: [char; 32] = [
+        '\u{20AC}', '\u{FFFD}', '\u{201A}', '\u{0192}', '\u{201E}', '\u{2026}',
+        '\u{2020}', '\u{2021}', '\u{02C6}', '\u{2030}', '\u{0160}', '\u{2039}',
+        '\u{0152}', '\u{FFFD}', '\u{017D}', '\u{FFFD}', '\u{FFFD}', '\u{2018}',
+        '\u{2019}', '\u{201C}', '\u{201D}', '\u{2022}', '\u{2013}', '\u{2014}',
+        '\u{02DC}', '\u{2122}', '\u{0161}', '\u{203A}', '\u{0153}', '\u{FFFD}',
+        '\u{017E}', '\u{0178}',
+    ];
+    bytes
+        .iter()
+        .map(|&b| match b {
+            0x80..=0x9F => CP1252_HAUT[(b - 0x80) as usize],
+            _ => b as char,
+        })
+        .collect()
+}
+
 fn query_canal(canal: &str, limit: u32, avert: bool) -> Result<Vec<CriticalEvent>, String> {
     // wevtutil ne supporte que les formats XML, Text et RenderedXml
     // (pas de JSON) : la sortie XML est parsée par parse_wevtutil_xml.
@@ -241,7 +266,7 @@ fn query_canal(canal: &str, limit: u32, avert: bool) -> Result<Vec<CriticalEvent
         .map_err(|e| format!("Impossible d'exécuter wevtutil : {}", e))?;
 
     if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let err = decoder_console(&output.stderr).trim().to_string();
         return Err(format!("Canal inaccessible ({}) : {}", canal, err));
     }
 
@@ -1775,6 +1800,19 @@ mod tests {
             "accents corrompus : {:?}",
             stdout
         );
+    }
+
+    // Les erreurs wevtutil arrivent en Windows-1252 ( « Accès refusé » en
+    // 0xE8/0xE9 bruts), son XML en UTF-8 : decoder_console gère les deux.
+    #[test]
+    fn decoder_console_utf8_et_cp1252() {
+        // UTF-8 valide : passage direct
+        assert_eq!(decoder_console("Déjà".as_bytes()), "Déjà");
+        // Windows-1252 : é = 0xE9, è = 0xE8, ’ = 0x92
+        assert_eq!(decoder_console(&[b'A', b'c', b'c', 0xE8, b's', 0x20, b'r', 0xE9, b'f', b'u', b's', 0xE9]), "Accès réfusé");
+        assert_eq!(decoder_console(&[0x92]), "\u{2019}");
+        // octet non défini en cp1252 : U+FFFD
+        assert_eq!(decoder_console(&[0x81]), "\u{FFFD}");
     }
 
     // Régression : une commande produisant plus que le buffer du pipe (~4 Ko)

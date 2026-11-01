@@ -28,6 +28,7 @@ import { ModaleConfirmation } from "./components/ModaleConfirmation";
 import { ModaleAudit } from "./components/ModaleAudit";
 import { ModaleMaintenance } from "./components/ModaleMaintenance";
 import { TableEvenements } from "./components/TableEvenements";
+import { VueProblemes } from "./components/VueProblemes";
 import { PanneauDetail } from "./components/PanneauDetail";
 import { usePiegeFocus } from "./hooks/usePiegeFocus";
 import { useTheme } from "./hooks/useTheme";
@@ -36,6 +37,7 @@ import { useCollecte } from "./hooks/useCollecte";
 import { SEVERITES } from "./lib/evenements";
 import { copierTexte } from "./lib/pressepapiers";
 import { rapportMarkdown } from "./lib/rapport";
+import { Layers } from "lucide-react";
 import { MAJ_APPS } from "./lib/catalogue";
 import { telechargerCsv } from "./lib/export";
 import { enregistrerAudit, evolution, lireHistorique, type EntreeAudit } from "./lib/audits";
@@ -124,6 +126,7 @@ export default function App() {
   const [rapportCopie, setRapportCopie] = useState(false);
   const [historiqueAudits, setHistoriqueAudits] = useState<EntreeAudit[]>([]);
   const [journal, setJournal] = useState<string[]>([]);
+  const [vue, setVue] = useState<"evenements" | "problemes">("evenements");
   const [chargementJournal, setChargementJournal] = useState(false);
   const { theme, basculerTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -556,6 +559,24 @@ export default function App() {
           Exporter (.csv)
         </button>
         <div className="toolbar-filtres" role="group" aria-label="Filtres de la liste">
+        <div className="vue-bascule" role="group" aria-label="Mode d'affichage de la liste">
+          <button
+            className={`maj-onglet ${vue === "evenements" ? "actif" : ""}`}
+            onClick={() => setVue("evenements")}
+            aria-pressed={vue === "evenements"}
+            title="Une ligne par événement collecté"
+          >
+            Événements
+          </button>
+          <button
+            className={`maj-onglet ${vue === "problemes" ? "actif" : ""}`}
+            onClick={() => setVue("problemes")}
+            aria-pressed={vue === "problemes"}
+            title="Une ligne par problème : occurrences regroupées par source et ID"
+          >
+            <Layers className="icon" size={12} aria-hidden="true" /> Problèmes
+          </button>
+        </div>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
           {canauxDisponibles.map((c) => (
             <option key={c}>{c}</option>
@@ -673,6 +694,7 @@ export default function App() {
       )}
 
       <div className={`layout ${terminalOuvert ? "avec-terminal" : ""}`}>
+        {vue === "evenements" ? (
         <TableEvenements
           filtres={filtres}
           totalEvenements={events.length}
@@ -684,6 +706,17 @@ export default function App() {
           onSelectionner={selectionner}
           onNaviguerClavier={naviguerClavier}
         />
+        ) : (
+          <VueProblemes
+            events={filtres}
+            totalFiltres={filtres.length}
+            onFiltreProbleme={(provider, eventId) => {
+              setProvider(provider);
+              setRecherche(String(eventId));
+              setVue("evenements");
+            }}
+          />
+        )}
 
         <PanneauDetail
           selected={selected}

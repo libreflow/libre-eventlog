@@ -89,3 +89,39 @@ describe("SEVERITES", () => {
     expect(SEVERITES).toContain("Info");
   });
 });
+
+import { grouperProblemes } from "./evenements";
+
+describe("grouperProblemes", () => {
+  const ev = (provider: string, eventId: number, level: number, timestamp: string) =>
+    ({ provider, eventId, level, timestamp, canal: "System" }) as never;
+
+  it("agrège par couple provider/eventId et compte les occurrences", () => {
+    const groupes = grouperProblemes([
+      ev("disk", 7, 2, "2026-11-01T10:00:00.000Z"),
+      ev("disk", 7, 2, "2026-11-01T11:00:00.000Z"),
+      ev("disk", 11, 3, "2026-11-01T09:00:00.000Z"),
+    ]);
+    expect(groupes).toHaveLength(2);
+    expect(groupes[0]).toMatchObject({ provider: "disk", eventId: 7, count: 2 });
+    expect(groupes[0].dernierIso).toBe("2026-11-01T11:00:00.000Z");
+  });
+
+  it("retient la sévérité la plus grave du groupe", () => {
+    const groupes = grouperProblemes([
+      ev("whea", 18, 2, "2026-11-01T10:00:00.000Z"),
+      ev("whea", 18, 1, "2026-11-01T09:00:00.000Z"),
+    ]);
+    expect(groupes[0].level).toBe(1);
+  });
+
+  it("trie par gravité puis occurrences décroissantes", () => {
+    const groupes = grouperProblemes([
+      ev("a", 1, 3, "2026-11-01T10:00:00.000Z"),
+      ev("b", 2, 1, "2026-11-01T10:00:00.000Z"),
+      ev("c", 3, 2, "2026-11-01T10:00:00.000Z"),
+      ev("c", 3, 2, "2026-11-01T11:00:00.000Z"),
+    ]);
+    expect(groupes.map((g) => g.eventId)).toEqual([2, 3, 1]);
+  });
+});

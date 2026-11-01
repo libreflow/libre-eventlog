@@ -1853,3 +1853,14 @@ input {
   overflow-y: auto;
   margin: 0;
 }
+
+/* Bascule de vue (événements / problèmes) dans la toolbar */
+.vue-bascule {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  padding: 2px;
+  margin-right: 4px;
+}

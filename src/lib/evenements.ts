@@ -55,3 +55,40 @@ export function cleJourLocal(iso: string): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
+
+// Vue agrégée « par problème » : une ligne par couple (provider, eventId),
+// occurrences, dernière occurrence et sévérité la plus grave (1 < 2 < 3).
+export interface ProblemeAgrege {
+  provider: string;
+  eventId: number;
+  count: number;
+  dernierIso: string;
+  level: number;
+}
+
+export function grouperProblemes(events: CriticalEvent[]): ProblemeAgrege[] {
+  const groupes = new Map<string, ProblemeAgrege>();
+  for (const e of events) {
+    const cle = `${e.provider}|${e.eventId}`;
+    const existant = groupes.get(cle);
+    if (!existant) {
+      groupes.set(cle, {
+        provider: e.provider,
+        eventId: e.eventId,
+        count: 1,
+        dernierIso: e.timestamp,
+        level: e.level,
+      });
+    } else {
+      existant.count += 1;
+      // Les timestamps RFC3339 normalisés se comparent lexicographiquement.
+      if (e.timestamp > existant.dernierIso) existant.dernierIso = e.timestamp;
+      if (e.level < existant.level) existant.level = e.level;
+    }
+  }
+  // Sévérité la plus grave d'abord, puis occurrences décroissantes
+  // (même ordre que l'audit de santé côté backend).
+  return [...groupes.values()].sort(
+    (a, b) => a.level - b.level || b.count - a.count,
+  );
+}

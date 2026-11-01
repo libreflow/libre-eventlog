@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check frontend
+        run: pnpm exec tsc --noEmit
+
+      - name: Frontend tests (Vitest)
+        run: pnpm test
+
+      - name: Frontend build
+        run: pnpm build
+
+      - name: Rust format
+        run: cargo fmt --check
+        working-directory: src-tauri
+
+      - name: Rust linter
+        run: cargo clippy -- -D warnings
+        working-directory: src-tauri
+
+      - name: Rust tests (unitaires + intégrations réelles lecture seule)
+        run: cargo test
+        working-directory: src-tauri
+
+      - name: Release build (no bundle)
+        run: pnpm tauri build --no-bundle
+
+      - name: Upload application artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libre-eventlog-windows
+          path: src-tauri/target/release/libre-eventlog.exe
+          if-no-files-found: error

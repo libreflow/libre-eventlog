@@ -173,7 +173,10 @@ async fn get_critical_events(
     inclure_avertissements: Option<bool>,
 ) -> Result<CollecteResult, String> {
     let res = tauri::async_runtime::spawn_blocking(move || {
-        collecter_evenements(limit.unwrap_or(50).min(2000), inclure_avertissements.unwrap_or(false))
+        collecter_evenements(
+            limit.unwrap_or(50).min(2000),
+            inclure_avertissements.unwrap_or(false),
+        )
     })
     .await
     .map_err(|e| format!("La collecte des événements a échoué : {}", e))?;
@@ -200,7 +203,8 @@ fn collecter_evenements(limit: u32, avert: bool) -> CollecteResult {
     };
     if !elevated {
         resultat.avertissements.push(
-            "Canal Security ignoré : relancez l'application en administrateur pour l'inclure.".into(),
+            "Canal Security ignoré : relancez l'application en administrateur pour l'inclure."
+                .into(),
         );
     }
     for canal in canaux {
@@ -211,7 +215,9 @@ fn collecter_evenements(limit: u32, avert: bool) -> CollecteResult {
     }
     // Tri décroissant garanti côté backend (timestamps RFC3339 normalisés,
     // donc comparables lexicographiquement).
-    resultat.events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    resultat
+        .events
+        .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
     resultat
 }
 
@@ -224,12 +230,11 @@ fn decoder_console(bytes: &[u8]) -> String {
         return s.to_string();
     }
     const CP1252_HAUT: [char; 32] = [
-        '\u{20AC}', '\u{FFFD}', '\u{201A}', '\u{0192}', '\u{201E}', '\u{2026}',
-        '\u{2020}', '\u{2021}', '\u{02C6}', '\u{2030}', '\u{0160}', '\u{2039}',
-        '\u{0152}', '\u{FFFD}', '\u{017D}', '\u{FFFD}', '\u{FFFD}', '\u{2018}',
-        '\u{2019}', '\u{201C}', '\u{201D}', '\u{2022}', '\u{2013}', '\u{2014}',
-        '\u{02DC}', '\u{2122}', '\u{0161}', '\u{203A}', '\u{0153}', '\u{FFFD}',
-        '\u{017E}', '\u{0178}',
+        '\u{20AC}', '\u{FFFD}', '\u{201A}', '\u{0192}', '\u{201E}', '\u{2026}', '\u{2020}',
+        '\u{2021}', '\u{02C6}', '\u{2030}', '\u{0160}', '\u{2039}', '\u{0152}', '\u{FFFD}',
+        '\u{017D}', '\u{FFFD}', '\u{FFFD}', '\u{2018}', '\u{2019}', '\u{201C}', '\u{201D}',
+        '\u{2022}', '\u{2013}', '\u{2014}', '\u{02DC}', '\u{2122}', '\u{0161}', '\u{203A}',
+        '\u{0153}', '\u{FFFD}', '\u{017E}', '\u{0178}',
     ];
     bytes
         .iter()
@@ -332,18 +337,16 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                         }
                     }
                     "Execution" => {
-                        process_id = attr_value(&e, "ProcessID")
-                            .and_then(|v| v.parse().ok());
-                        thread_id = attr_value(&e, "ThreadID")
-                            .and_then(|v| v.parse().ok());
+                        process_id = attr_value(&e, "ProcessID").and_then(|v| v.parse().ok());
+                        thread_id = attr_value(&e, "ThreadID").and_then(|v| v.parse().ok());
                     }
                     "EventData" => {
                         event_data = Some(serde_json::Map::new());
                     }
                     "Data" => {
                         let idx = event_data.as_ref().map(|m| m.len()).unwrap_or(0);
-                        let name = attr_value(&e, "Name")
-                            .unwrap_or_else(|| format!("Data {}", idx));
+                        let name =
+                            attr_value(&e, "Name").unwrap_or_else(|| format!("Data {}", idx));
                         pending_data_name = Some(name);
                     }
                     _ => {}
@@ -363,10 +366,8 @@ fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                         }
                     }
                     "Execution" => {
-                        process_id = attr_value(&e, "ProcessID")
-                            .and_then(|v| v.parse().ok());
-                        thread_id = attr_value(&e, "ThreadID")
-                            .and_then(|v| v.parse().ok());
+                        process_id = attr_value(&e, "ProcessID").and_then(|v| v.parse().ok());
+                        thread_id = attr_value(&e, "ThreadID").and_then(|v| v.parse().ok());
                     }
                     "Data" => {
                         if let Some(map) = event_data.as_mut() {
@@ -472,12 +473,12 @@ const PS_DENYLIST: &[&str] = &[
 // par |, ; ou retour ligne) doit commencer par un exécutable autorisé ou
 // un cmdlet dont le verbe est autorisé. La denylist reste en second filet.
 const EXE_AUTORISES: &[&str] = &[
-    "sfc", "dism", "chkdsk", "ipconfig", "netsh", "powercfg", "winget",
-    "wevtutil", "whoami", "nslookup", "arp", "mdsched", "cleanmgr",
+    "sfc", "dism", "chkdsk", "ipconfig", "netsh", "powercfg", "winget", "wevtutil", "whoami",
+    "nslookup", "arp", "mdsched", "cleanmgr",
 ];
 const VERBES_CMDLETS: &[&str] = &[
-    "get", "show", "test", "measure", "repair", "resolve", "select",
-    "where", "sort", "group", "format", "compare", "find", "read",
+    "get", "show", "test", "measure", "repair", "resolve", "select", "where", "sort", "group",
+    "format", "compare", "find", "read",
 ];
 
 fn segment_autorise(segment: &str) -> bool {
@@ -593,8 +594,7 @@ async fn relancer_admin() -> Result<(), String> {
 }
 
 fn relancer_admin_bloquant() -> Result<(), String> {
-    let exe =
-        std::env::current_exe().map_err(|e| format!("Exécutable introuvable : {}", e))?;
+    let exe = std::env::current_exe().map_err(|e| format!("Exécutable introuvable : {}", e))?;
     // Échappement PowerShell des guillemets simples ('' dans une chaîne
     // '…') : un chemin contenant une apostrophe ne doit pas casser la commande.
     let exe_escaped = exe.display().to_string().replace('\'', "''");
@@ -610,9 +610,7 @@ fn relancer_admin_bloquant() -> Result<(), String> {
         .map_err(|e| format!("Impossible de relancer l'application : {}", e))?;
     let out = attendre_avec_timeout(child, 30)?;
     if !out.status.success() {
-        return Err(
-            "La relance en administrateur a été refusée ou a échoué (invite UAC).".into(),
-        );
+        return Err("La relance en administrateur a été refusée ou a échoué (invite UAC).".into());
     }
     Ok(())
 }
@@ -752,11 +750,9 @@ async fn run_diagnostic_command(
     commande: String,
     timeout_secs: Option<u64>,
 ) -> Result<CommandResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        executer_commande_ps(commande, timeout_secs)
-    })
-    .await
-    .map_err(|e| format!("La commande a échoué : {}", e))?
+    tauri::async_runtime::spawn_blocking(move || executer_commande_ps(commande, timeout_secs))
+        .await
+        .map_err(|e| format!("La commande a échoué : {}", e))?
 }
 
 // Défaut 120 s ; plafonné pour qu'une commande compromise ne puisse pas
@@ -928,12 +924,9 @@ fn parse_wu_scan(stdout: &str) -> Vec<WinUpdate> {
     let mut maj = Vec::new();
     for ligne in stdout.lines() {
         let mut champs = ligne.splitn(4, '|');
-        let (Some(id), Some(kind), Some(taille), Some(titre)) = (
-            champs.next(),
-            champs.next(),
-            champs.next(),
-            champs.next(),
-        ) else {
+        let (Some(id), Some(kind), Some(taille), Some(titre)) =
+            (champs.next(), champs.next(), champs.next(), champs.next())
+        else {
             continue;
         };
         if !id_wu_valide(id) {
@@ -1074,9 +1067,7 @@ fn spawn_winget(args: &[&str]) -> Result<std::process::Child, String> {
 fn taille_entree(path: &std::path::Path) -> u64 {
     if path.is_dir() {
         std::fs::read_dir(path)
-            .map(|entries| {
-                entries.flatten().map(|e| taille_entree(&e.path())).sum()
-            })
+            .map(|entries| entries.flatten().map(|e| taille_entree(&e.path())).sum())
             .unwrap_or(0)
     } else {
         std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
@@ -1314,12 +1305,9 @@ fn lister_peripheriques_problemes() -> Result<Vec<ProblemDevice>, String> {
     let mut peripheriques = Vec::new();
     for ligne in stdout.lines() {
         let mut champs = ligne.splitn(4, '|');
-        let (Some(nom), Some(instance), Some(code), Some(statut)) = (
-            champs.next(),
-            champs.next(),
-            champs.next(),
-            champs.next(),
-        ) else {
+        let (Some(nom), Some(instance), Some(code), Some(statut)) =
+            (champs.next(), champs.next(), champs.next(), champs.next())
+        else {
             continue;
         };
         peripheriques.push(ProblemDevice {
@@ -1561,7 +1549,9 @@ fn charger_base() -> Vec<FixEntryMatch> {
                             .and_then(|c| c.as_array())
                             .map(|arr| {
                                 arr.iter()
-                                    .filter_map(|c| serde_json::from_value::<CommandeFix>(c.clone()).ok())
+                                    .filter_map(|c| {
+                                        serde_json::from_value::<CommandeFix>(c.clone()).ok()
+                                    })
                                     .collect()
                             })
                             .unwrap_or_default(),
@@ -1721,11 +1711,14 @@ mod tests {
     // production et vérifie que le parsing aboutit.
     #[test]
     fn wevtutil_reel_system() {
-        let events =
-            query_canal("System", 50, false).expect("la requête wevtutil doit réussir");
+        let events = query_canal("System", 50, false).expect("la requête wevtutil doit réussir");
         for e in &events {
             assert_eq!(e.canal, "System");
-            assert!(e.level == 1 || e.level == 2, "level inattendu : {}", e.level);
+            assert!(
+                e.level == 1 || e.level == 2,
+                "level inattendu : {}",
+                e.level
+            );
             assert!(!e.provider.is_empty());
             // timestamp normalisé, parsable par new Date()
             assert!(
@@ -1765,7 +1758,7 @@ mod tests {
         let (nb, octets) = purge_contenu_repertoire(&base);
         assert_eq!(nb, 2); // a.tmp + sous-dossier
         assert_eq!(octets, 12); // 8 octets du fichier + 4 dans le sous-dossier
-        // le répertoire lui-même est conservé, mais vidé
+                                // le répertoire lui-même est conservé, mais vidé
         assert!(base.is_dir());
         assert!(std::fs::read_dir(&base).unwrap().next().is_none());
 
@@ -1809,7 +1802,12 @@ mod tests {
         // UTF-8 valide : passage direct
         assert_eq!(decoder_console("Déjà".as_bytes()), "Déjà");
         // Windows-1252 : é = 0xE9, è = 0xE8, ’ = 0x92
-        assert_eq!(decoder_console(&[b'A', b'c', b'c', 0xE8, b's', 0x20, b'r', 0xE9, b'f', b'u', b's', 0xE9]), "Accès réfusé");
+        assert_eq!(
+            decoder_console(&[
+                b'A', b'c', b'c', 0xE8, b's', 0x20, b'r', 0xE9, b'f', b'u', b's', 0xE9
+            ]),
+            "Accès réfusé"
+        );
         assert_eq!(decoder_console(&[0x92]), "\u{2019}");
         // octet non défini en cp1252 : U+FFFD
         assert_eq!(decoder_console(&[0x81]), "\u{FFFD}");
@@ -1837,8 +1835,16 @@ mod tests {
         let start = Instant::now();
         let out = attendre_avec_timeout(child, 15).expect("la commande doit aboutir");
         // ~46 octets x 8000 lignes ~ 370 Ko >> buffer du pipe
-        assert!(out.stdout.len() > 100_000, "sortie trop courte : {}", out.stdout.len());
-        assert!(start.elapsed().as_secs() < 10, "la commande a bloque : {:?}", start.elapsed());
+        assert!(
+            out.stdout.len() > 100_000,
+            "sortie trop courte : {}",
+            out.stdout.len()
+        );
+        assert!(
+            start.elapsed().as_secs() < 10,
+            "la commande a bloque : {:?}",
+            start.elapsed()
+        );
     }
 }
 
@@ -1879,7 +1885,11 @@ mod tests_winget {
         for p in &paquets {
             assert!(!p.id.is_empty(), "ID vide pour {:?}", p);
             assert!(!p.name.is_empty(), "nom vide pour {:?}", p);
-            assert!(!p.available.is_empty(), "version disponible vide pour {:?}", p);
+            assert!(
+                !p.available.is_empty(),
+                "version disponible vide pour {:?}",
+                p
+            );
         }
     }
 
@@ -1920,7 +1930,10 @@ mod tests_winget {
         assert_eq!(maj[0].title, "Intel - Display 1.2.3");
         // séparateur décimal FR (virgule) -> converti correctement
         assert_eq!(maj[1].size_mb, 250.25);
-        assert_eq!(maj[1].title, "Mise à jour cumulative Windows 11 (KB5031234)");
+        assert_eq!(
+            maj[1].title,
+            "Mise à jour cumulative Windows 11 (KB5031234)"
+        );
     }
 
     #[test]
@@ -1937,7 +1950,11 @@ mod tests_winget {
     fn systeme_info_reel() {
         let info = lire_systeme_info().expect("la lecture CIM doit réussir");
         assert!(!info.manufacturer.is_empty(), "fabricant vide : {:?}", info);
-        assert!(!info.bios_version.is_empty(), "version BIOS vide : {:?}", info);
+        assert!(
+            !info.bios_version.is_empty(),
+            "version BIOS vide : {:?}",
+            info
+        );
         // date BIOS au format yyyy-MM-dd si présente
         if !info.bios_date.is_empty() {
             chrono::NaiveDate::parse_from_str(&info.bios_date, "%Y-%m-%d")
@@ -2007,7 +2024,10 @@ mod tests_winget {
         // Les noms accentés décalent les octets mais pas les caractères :
         // le découpage par indices de chars doit rester correct.
         let entete = format!("{:<13}{:<16}{:<8}{}", "Nom", "ID", "Version", "Disponible");
-        let ligne = format!("{:<13}{:<16}{:<8}{}", "Café du Thé", "Cafe.Theiere", "1.0", "2.0");
+        let ligne = format!(
+            "{:<13}{:<16}{:<8}{}",
+            "Café du Thé", "Cafe.Theiere", "1.0", "2.0"
+        );
         let sortie = format!(
             "{entete}\r\n{}\r\n{ligne}\r\n1 mise à niveau disponible.\r\n",
             "-".repeat(entete.chars().count())

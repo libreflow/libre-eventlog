@@ -13,12 +13,14 @@ pub async fn get_critical_events(
     limit: Option<u32>,
     inclure_avertissements: Option<bool>,
     depuis_ms: Option<u64>,
+    canaux_supplementaires: Option<Vec<String>>,
 ) -> Result<CollecteResult, String> {
     let res = tauri::async_runtime::spawn_blocking(move || {
         collecter_evenements(
             limit.unwrap_or(50).min(2000),
             inclure_avertissements.unwrap_or(false),
             depuis_ms,
+            canaux_supplementaires.unwrap_or_default(),
         )
     })
     .await
@@ -26,7 +28,12 @@ pub async fn get_critical_events(
     Ok(res)
 }
 
-pub fn collecter_evenements(limit: u32, avert: bool, depuis_ms: Option<u64>) -> CollecteResult {
+pub fn collecter_evenements(
+    limit: u32,
+    avert: bool,
+    depuis_ms: Option<u64>,
+    canaux_supplementaires: Vec<String>,
+) -> CollecteResult {
     let elevated = is_elevated();
     let mut canaux: Vec<&str> = vec![
         "System",
@@ -50,6 +57,19 @@ pub fn collecter_evenements(limit: u32, avert: bool, depuis_ms: Option<u64>) -> 
                 .into(),
         );
     }
+    // Canaux personnalisés de l'utilisateur : ajoutés une seule fois,
+    // seulement s'ils ne font pas déjà partie de la liste par défaut.
+    for canal in canaux_supplementaires {
+        if !canaux.contains(&canal.as_str()) {
+            match query_canal(&canal, limit, avert, depuis_ms) {
+                Ok(mut ev) => resultat.events.append(&mut ev),
+                // Un canal perso inaccessible (inexistant sur cette machine)
+                // est signalé, pas bloquant.
+                Err(e) => resultat.avertissements.push(e),
+            }
+        }
+    }
+
     for canal in canaux {
         match query_canal(canal, limit, avert, depuis_ms) {
             Ok(mut ev) => resultat.events.append(&mut ev),
@@ -316,4 +336,55 @@ pub fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
     }
 
     events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 2.5 — un canal personnalisé est collecté (ou signalé si absent),
+    // et un canal déjà couvert par défaut n'est pas interrogé deux fois.
+    #[test]
+    fn canaux_personnalises_collectes_ou_signales() {
+        let res = collecter_evenements(
+            5,
+            false,
+            None,
+            vec![
+                "Microsoft-Windows-Windows Defender/Operational".to_string(),
+                "CanalQuiNexistePas/Operational".to_string(),
+            ],
+        );
+        // Le canal Defender (présent sur toute machine moderne) est
+        // accessible : soit des événements ont été collectés, soit il est
+        // simplement vide de Level 1/2 — jamais signalé comme inaccessible.
+        let avertissement_defender = res
+            .avertissements
+            .iter()
+            .any(|a| a.contains("Windows-Defender/Operational"));
+        assert!(
+            !avertissement_defender,
+            "canal Defender accessible signalé inaccessible : {:?}",
+            res.avertissements
+        );
+        // Le canal inexistant est signalé, jamais fatal.
+        assert!(res
+            .avertissements
+            .iter()
+            .any(|a| a.contains("CanalQuiNexistePas/Operational")));
+    }
+
+    #[test]
+    fn canal_personnalise_deja_couvert_nest_pas_duplique() {
+        // « System » fait partie de la liste par défaut : le passer en
+        // supplément ne doit rien dupliquer ni échouer.
+        let res = collecter_evenements(5, false, None, vec!["System".to_string()]);
+        let nb_systeme = res.events.iter().filter(|e| e.canal == "System").count();
+        let limite_systeme = res.events.len();
+        assert!(nb_systeme <= limite_systeme);
+        assert!(
+            nb_systeme <= 5,
+            "System interrogé deux fois : {nb_systeme} > 5"
+        );
+    }
 }

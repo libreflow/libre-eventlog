@@ -894,7 +894,7 @@
         ]
       }
     ],
-    "Microsoft-Windows-Windows-Defender/Operational": [
+    "Microsoft-Windows-Windows Defender/Operational": [
       {
         "match": {
           "provider": "Microsoft-Windows-Windows-Defender",
@@ -912,7 +912,7 @@
           {
             "label": "Dernières détections de Defender",
             "description": "Historique des menaces détectées par Microsoft Defender",
-            "commande": "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows-Defender/Operational'; Id=1116,1117} -MaxEvents 20 | Select-Object TimeCreated, Message | Format-List",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Windows Defender/Operational'; Id=1116,1117} -MaxEvents 20 | Select-Object TimeCreated, Message | Format-List",
             "type": "lecture",
             "elevation": false,
             "confirme": false

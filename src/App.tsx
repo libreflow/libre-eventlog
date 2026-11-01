@@ -29,6 +29,7 @@ import { ModaleAudit } from "./components/ModaleAudit";
 import { ModaleMaintenance } from "./components/ModaleMaintenance";
 import { TableEvenements } from "./components/TableEvenements";
 import { VueProblemes } from "./components/VueProblemes";
+import { ModaleCanaux } from "./components/ModaleCanaux";
 import { PanneauDetail } from "./components/PanneauDetail";
 import { usePiegeFocus } from "./hooks/usePiegeFocus";
 import { useTheme } from "./hooks/useTheme";
@@ -37,7 +38,7 @@ import { useCollecte } from "./hooks/useCollecte";
 import { SEVERITES } from "./lib/evenements";
 import { copierTexte } from "./lib/pressepapiers";
 import { rapportMarkdown } from "./lib/rapport";
-import { Layers } from "lucide-react";
+import { Layers, Radio } from "lucide-react";
 import { MAJ_APPS } from "./lib/catalogue";
 import { telechargerCsv } from "./lib/export";
 import { enregistrerAudit, evolution, lireHistorique, type EntreeAudit } from "./lib/audits";
@@ -82,6 +83,8 @@ export default function App() {
     diagLoading,
     message,
     messageChargement,
+    canauxPerso,
+    setCanauxPerso,
   } = useCollecte();
   const [elevated, setElevated] = useState<boolean | null>(null);
   const [relanceEnCours, setRelanceEnCours] = useState(false);
@@ -127,6 +130,7 @@ export default function App() {
   const [historiqueAudits, setHistoriqueAudits] = useState<EntreeAudit[]>([]);
   const [journal, setJournal] = useState<string[]>([]);
   const [vue, setVue] = useState<"evenements" | "problemes">("evenements");
+  const [canauxOuverte, setCanauxOuverte] = useState(false);
   const [chargementJournal, setChargementJournal] = useState(false);
   const { theme, basculerTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -150,7 +154,7 @@ export default function App() {
   // Ignorés pendant qu'une modale est ouverte : le clavier appartient à
   // la modale (piège de focus, Échap), Ctrl+F ne doit pas voler le focus
   // vers la recherche d'arrière-plan.
-  const modaleOuverte = !!confirmCmd || majOuverte || auditOuverte;
+  const modaleOuverte = !!confirmCmd || majOuverte || auditOuverte || canauxOuverte;
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (modaleOuverte) return;
@@ -173,10 +177,11 @@ export default function App() {
   // peut s'ouvrir par-dessus la fenêtre Maintenance : Échap ne doit pas
   // fermer les deux d'un coup).
   useEffect(() => {
-    if (!confirmCmd && !majOuverte && !auditOuverte) return;
+    if (!confirmCmd && !majOuverte && !auditOuverte && !canauxOuverte) return;
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key !== "Escape") return;
       if (confirmCmd) setConfirmCmd(null);
+      else if (canauxOuverte) setCanauxOuverte(false);
       else if (majOuverte) {
         // Mêmes gardes que le clic sur l'overlay : pas de fermeture pendant
         // un chargement (winget, scan Windows Update, lecture CIM).
@@ -189,6 +194,7 @@ export default function App() {
     confirmCmd,
     majOuverte,
     auditOuverte,
+    canauxOuverte,
     majChargement,
     wuChargement,
     hwChargement,
@@ -577,6 +583,15 @@ export default function App() {
             <Layers className="icon" size={12} aria-hidden="true" /> Problèmes
           </button>
         </div>
+        <button
+          className="btn small btn-ghost"
+          onClick={() => setCanauxOuverte(true)}
+          title="Canaux supplémentaires à collecter (Defender, réseau, BITS…)"
+          aria-pressed={canauxOuverte}
+        >
+          <Radio className="icon" aria-hidden="true" /> Canaux
+          {canauxPerso.length > 0 ? ` (${canauxPerso.length})` : ""}
+        </button>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
           {canauxDisponibles.map((c) => (
             <option key={c}>{c}</option>
@@ -803,6 +818,18 @@ export default function App() {
           chargementJournal={chargementJournal}
           onRafraichirJournal={chargerJournal}
           onPurgerJournal={purgerJournal}
+        />
+      )}
+
+      {canauxOuverte && (
+        <ModaleCanaux
+          canaux={canauxPerso}
+          onFermer={() => setCanauxOuverte(false)}
+          onEnregistrer={(liste) => {
+            setCanauxPerso(liste);
+            // Re-collecte immédiate avec les nouveaux canaux.
+            charger();
+          }}
         />
       )}
 

@@ -34,7 +34,7 @@ pub fn score_global(categories: &[CategorieScore]) -> u8 {
 fn calculer_audit() -> AuditSante {
     use std::collections::BTreeMap;
 
-    let collecte = collecter_evenements(200, true, None);
+    let collecte = collecter_evenements(200, true, None, Vec::new());
 
     // (provider, event_id) -> (niveau le plus grave, occurrences, fix)
     let mut agreges: BTreeMap<(String, u32), (u8, u32, Option<FixEntry>)> = BTreeMap::new();

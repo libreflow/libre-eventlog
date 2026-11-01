@@ -34,6 +34,23 @@ export function useCollecte() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [depuis, setDepuis] = useState<string>("24");
   const [autoRefresh, setAutoRefresh] = useState("0");
+  // Canaux personnalisés persistés : ajoutés à la collecte à chaque requête.
+  const [canauxPerso, setCanauxPerso] = useState<string[]>(() => {
+    try {
+      const brut = localStorage.getItem("libre-eventlog-canaux");
+      const liste = brut ? JSON.parse(brut) : [];
+      return Array.isArray(liste) ? liste : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("libre-eventlog-canaux", JSON.stringify(canauxPerso));
+    } catch {
+      /* persistance indisponible */
+    }
+  }, [canauxPerso]);
   const diagSeq = useRef(0);
   const collecteSeq = useRef(0);
   // Toujours à jour pour les raccourcis clavier et l'auto-refresh.
@@ -56,6 +73,7 @@ export function useCollecte() {
         limit: Number(overLimite ?? limite),
         inclureAvertissements: overAvert ?? inclureAvert,
         depuisMs,
+        canauxSupplementaires: canauxPerso,
       });
       if (collecteSeq.current !== seq) return;
       setEvents(result.events);
@@ -237,5 +255,7 @@ export function useCollecte() {
     diagLoading,
     message,
     messageChargement,
+    canauxPerso,
+    setCanauxPerso,
   };
 }

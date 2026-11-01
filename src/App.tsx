@@ -225,19 +225,36 @@ function severityClass(e: CriticalEvent): string {
 }
 
 // Libellé humain du jour de regroupement : « Aujourd'hui », « Hier », date.
+// `dateCle` est de la forme « 2026-10-31 » (YYYY-MM-DD, jour **local** de
+// l'événement) : sans composante temps ni fuseau, new Date() la parse comme
+// une date locale et le regroupement suit le calendrier de l'utilisateur.
 function libelleJour(dateCle: string): string {
   const d = new Date(`${dateCle}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return dateCle;
   const ref = new Date();
   ref.setHours(12, 0, 0, 0);
   const hier = new Date(ref);
   hier.setDate(hier.getDate() - 1);
-  if (d.getTime() === ref.getTime()) return "Aujourd'hui";
-  if (d.getTime() === hier.getTime()) return "Hier";
+  const memeJour = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (memeJour(d, ref)) return "Aujourd'hui";
+  if (memeJour(d, hier)) return "Hier";
   return d.toLocaleDateString("fr-FR", {
     weekday: "long",
     day: "numeric",
     month: "long",
   });
+}
+
+// Clé de regroupement par jour : « 2026-10-31 » en date **locale** de
+// l'événement (cohérente avec formatDate, qui affiche l'heure locale).
+function cleJourLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 // Piège de focus dans une modale : Tab ne s'échappe pas vers l'arrière-plan.
@@ -348,6 +365,44 @@ async function copierTexte(texte: string): Promise<void> {
   }
 }
 
+// Ouvre un lien externe dans le navigateur par défaut du système. Une
+// webview Tauri n'ouvre pas les target="_blank" d'elle-même : on passe
+// par le plugin opener (capacité « opener:default »).
+function ouvrirExterne(url: string) {
+  invoke("plugin:opener|open_url", { url }).catch(() => {
+    /* plugin indisponible : laisser la webview tenter le repli */
+  });
+}
+
+// Ancre externe : href conservé (clavier, statut hover), ouverture via opener.
+function LienExterne({
+  href,
+  className,
+  title,
+  children,
+}: {
+  href: string;
+  className?: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      className={className}
+      title={title}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e) => {
+        e.preventDefault();
+        ouvrirExterne(href);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 export default function App() {
   const [events, setEvents] = useState<CriticalEvent[]>([]);
   const [selected, setSelected] = useState<CriticalEvent | null>(null);
@@ -382,6 +437,7 @@ export default function App() {
   const [wuSelection, setWuSelection] = useState<Set<string>>(new Set());
   const [wuChargement, setWuChargement] = useState(false);
   const [wuScanFait, setWuScanFait] = useState(false);
+  const [wuErreur, setWuErreur] = useState<string | null>(null);
   const [hwInfo, setHwInfo] = useState<SystemInfo | null>(null);
   const [hwProblemes, setHwProblemes] = useState<ProblemDevice[]>([]);
   const [hwChargement, setHwChargement] = useState(false);
@@ -475,14 +531,16 @@ export default function App() {
     }
   }, [theme]);
 
+  // Échap ferme uniquement la modale de premier plan (une confirmation
+  // peut s'ouvrir par-dessus la fenêtre Maintenance : Échap ne doit pas
+  // fermer les deux d'un coup).
   useEffect(() => {
     if (!confirmCmd && !majOuverte && !auditOuverte) return;
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        setConfirmCmd(null);
-        setMajOuverte(false);
-        setAuditOuverte(false);
-      }
+      if (ev.key !== "Escape") return;
+      if (confirmCmd) setConfirmCmd(null);
+      else if (majOuverte) setMajOuverte(false);
+      else setAuditOuverte(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -643,14 +701,17 @@ export default function App() {
 
   async function chargerWu() {
     setWuChargement(true);
-    setWuScanFait(true);
+    setWuErreur(null);
     try {
       const res = await invoke<WinUpdate[]>("list_windows_updates");
       setWuPaquets(res);
       setWuSelection(new Set(res.map((u) => u.updateId)));
+      // Marqué seulement ici : un scan échoué ne doit pas s'afficher comme
+      // « aucune mise à jour en attente ».
+      setWuScanFait(true);
     } catch (e) {
       setWuPaquets([]);
-      setError(String(e));
+      setWuErreur(String(e));
     } finally {
       setWuChargement(false);
     }
@@ -1169,8 +1230,8 @@ export default function App() {
                 // Regroupement par jour, uniquement dans le tri par date
                 // (le tri par défaut) : en-têtes « Aujourd'hui », « Hier »…
                 const lignes: React.ReactNode[] = [];
-                const cleJour = new Date(e.timestamp).toDateString();
-                if (sortKey === "timestamp" && (i === 0 || new Date(filtres[i - 1].timestamp).toDateString() !== cleJour)) {
+                const cleJour = cleJourLocal(e.timestamp);
+                if (sortKey === "timestamp" && (i === 0 || cleJourLocal(filtres[i - 1].timestamp) !== cleJour)) {
                   lignes.push(
                     <tr key={`jour-${cleJour}`} className="groupe-jour">
                       <td colSpan={5}>{libelleJour(cleJour)}</td>
@@ -1281,16 +1342,11 @@ export default function App() {
                       Aucun correctif connu pour cet événement. Consultez la base
                       Microsoft.
                     </p>
-                    <a
-                      className="btn"
-                      href={lienRecherche(selected)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
+                    <LienExterne className="btn" href={lienRecherche(selected)}>
                       <Search className="icon" aria-hidden="true" />
                       Rechercher sur support.microsoft.com
                       <span className="sr-only"> (ouvre un nouvel onglet)</span>
-                    </a>
+                    </LienExterne>
                   </div>
                 )}
                 {!diagLoading && diagnostic?.fix && (
@@ -1304,16 +1360,11 @@ export default function App() {
                     </ol>
                     <div className="fix-footer">
                       <span className="badge categorie">{diagnostic.fix.categorie}</span>
-                      <a
-                        className="btn"
-                        href={lienRecherche(selected)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
+                      <LienExterne className="btn" href={lienRecherche(selected)}>
                         <ExternalLink className="icon" aria-hidden="true" />
                         Plus d'infos (support.microsoft.com)
                         <span className="sr-only"> (ouvre un nouvel onglet)</span>
-                      </a>
+                      </LienExterne>
                     </div>
 
                     {diagnostic.fix.commandes.length > 0 && (
@@ -1611,7 +1662,9 @@ export default function App() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="maj-title"
-          onClick={() => !majChargement && setMajOuverte(false)}
+          onClick={() =>
+            !majChargement && !wuChargement && !hwChargement && setMajOuverte(false)
+          }
         >
           <div className="modal modal-maj" ref={majModalRef} onClick={(e) => e.stopPropagation()}>
             <h3 id="maj-title"><Wrench className="icon" aria-hidden="true" /> Maintenance</h3>
@@ -1714,9 +1767,15 @@ export default function App() {
                   <p className="maj-status"><Loader2 className="icon spin" aria-hidden="true" /> Recherche des mises à jour Windows et pilotes…</p>
                 )}
 
-                {!wuChargement && !wuScanFait && (
+                {!wuChargement && !wuScanFait && !wuErreur && (
                   <p className="maj-status">
                     Lancez une recherche pour afficher les mises à jour Windows et pilotes disponibles.
+                  </p>
+                )}
+
+                {!wuChargement && wuErreur && (
+                  <p className="modal-warn" role="alert">
+                    <AlertTriangle className="icon warn" aria-hidden="true" /> La recherche a échoué : {wuErreur}
                   </p>
                 )}
 
@@ -1813,29 +1872,25 @@ export default function App() {
                 {!hwChargement && hwInfo && (
                   <div className="hw-actions">
                     {fabricantTrouve(hwInfo.manufacturer) ? (
-                      <a
+                      <LienExterne
                         className="btn"
                         href={fabricantTrouve(hwInfo.manufacturer)!.url}
-                        target="_blank"
-                        rel="noreferrer"
                       >
                         <ExternalLink className="icon" aria-hidden="true" /> {fabricantTrouve(hwInfo.manufacturer)!.nom}
                         <span className="sr-only"> (ouvre un nouvel onglet)</span>
-                      </a>
+                      </LienExterne>
                     ) : (
                       <span className="maj-status">Fabricant non reconnu — utilisez la recherche ci-dessous.</span>
                     )}
-                    <a
+                    <LienExterne
                       className="btn"
                       href={`https://www.google.com/search?q=${encodeURIComponent(
                         `${hwInfo.manufacturer} ${hwInfo.model} BIOS update drivers`,
                       )}`}
-                      target="_blank"
-                      rel="noreferrer"
                     >
                       <Search className="icon" aria-hidden="true" /> Rechercher mises à jour BIOS/pilotes
                       <span className="sr-only"> (ouvre un nouvel onglet)</span>
-                    </a>
+                    </LienExterne>
                     <button className="btn" onClick={chargerMateriel} disabled={hwChargement}>
                       <RefreshCw className="icon" aria-hidden="true" /> Actualiser
                     </button>

@@ -72,12 +72,6 @@ pub struct FixEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FixLookup {
-    pub version: u32,
-    pub entries: Vec<FixEntryMatch>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixEntryMatch {
     pub provider: String,
     pub event_id: u32,
@@ -104,6 +98,12 @@ pub struct CommandeFix {
     pub elevation: bool,
     #[serde(default)]
     pub confirme: bool,
+    /// Délai d'exécution max en secondes (défaut : 120 s dans
+    /// run_diagnostic_command). Transporté jusqu'au frontend pour que les
+    /// commandes longues de la base (ex. powercfg /energy) ne soient pas
+    /// tuées prématurément.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1586,6 +1586,7 @@ fn lookup_fix(provider: &str, event_id: u32) -> Option<FixEntry> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_critical_events,
             get_diagnostic,
@@ -1928,6 +1929,20 @@ mod tests_winget {
                     c.commande
                 );
             }
+        }
+
+        // Les commandes longues doivent déclarer un timeout adapté, sinon
+        // run_diagnostic_command les tue à 120 s (défaut).
+        let energy = base
+            .iter()
+            .flat_map(|m| m.entry.commandes.iter())
+            .find(|c| c.commande.contains("/energy"));
+        if let Some(c) = energy {
+            assert!(
+                c.timeout_secs.unwrap_or(0) >= 900,
+                "powercfg /energy sans timeout suffisant : {:?}",
+                c.timeout_secs
+            );
         }
     }
 

@@ -30,6 +30,7 @@
             "label": "Rapport d'énergie du système",
             "description": "Diagnostique la consommation et les veilles anormales",
             "commande": "powercfg /energy /duration 10",
+          "timeoutSecs": 900,
             "type": "lecture",
             "elevation": true,
             "confirme": false
@@ -128,6 +129,7 @@
             "label": "Vérifier le système de fichiers (C:)",
             "description": "Analyse en ligne du volume C: sans interruption",
             "commande": "Repair-Volume -DriveLetter C -Scan",
+          "timeoutSecs": 1800,
             "type": "action",
             "elevation": true,
             "confirme": true

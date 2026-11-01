@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
+  Download,
   HeartPulse,
   Lock,
   Loader2,
@@ -36,6 +37,7 @@ import { SEVERITES } from "./lib/evenements";
 import { copierTexte } from "./lib/pressepapiers";
 import { rapportMarkdown } from "./lib/rapport";
 import { MAJ_APPS } from "./lib/catalogue";
+import { telechargerCsv } from "./lib/export";
 
 
 
@@ -506,6 +508,15 @@ export default function App() {
         >
           <HeartPulse className="icon" aria-hidden="true" />
           Audit de santé
+        </button>
+        <button
+          className="btn"
+          onClick={() => telechargerCsv(filtres)}
+          disabled={filtres.length === 0}
+          title="Exporter les événements filtrés au format CSV (Excel, séparateur point-virgule)"
+        >
+          <Download className="icon" aria-hidden="true" />
+          Exporter (.csv)
         </button>
         <div className="toolbar-filtres" role="group" aria-label="Filtres de la liste">
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">

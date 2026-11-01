@@ -258,7 +258,8 @@ function cleJourLocal(iso: string): string {
 }
 
 // Piège de focus dans une modale : Tab ne s'échappe pas vers l'arrière-plan.
-// Place le focus au premier élément interactif à l'ouverture.
+// Place le focus au premier élément interactif à l'ouverture et le rend à
+// l'élément qui avait ouvert la modale à la fermeture.
 function usePiegeFocus(ref: React.RefObject<HTMLElement | null>, actif: boolean) {
   useEffect(() => {
     if (!actif || !ref.current) return;
@@ -269,6 +270,9 @@ function usePiegeFocus(ref: React.RefObject<HTMLElement | null>, actif: boolean)
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         ),
       ).filter((el) => !el.hasAttribute("disabled"));
+    const focusAvant = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     focusables()[0]?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
@@ -285,7 +289,11 @@ function usePiegeFocus(ref: React.RefObject<HTMLElement | null>, actif: boolean)
       }
     };
     racine.addEventListener("keydown", onKeyDown);
-    return () => racine.removeEventListener("keydown", onKeyDown);
+    return () => {
+      racine.removeEventListener("keydown", onKeyDown);
+      // Rend le focus à l'élément qui a ouvert la modale, s'il existe encore.
+      if (focusAvant && document.contains(focusAvant)) focusAvant.focus();
+    };
   }, [ref, actif]);
 }
 
@@ -480,6 +488,7 @@ export default function App() {
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
+  const collecteSeq = useRef(0);
 
   // Piège de focus actif pour chaque modale ouverte.
   usePiegeFocus(majModalRef, majOuverte);
@@ -559,6 +568,10 @@ export default function App() {
   }, [terminal]);
 
   async function charger(overLimite?: string, overAvert?: boolean) {
+    // Séquence : deux collectes peuvent se chevaucher (auto-refresh + clic,
+    // ou changement rapide de filtre) ; seule la plus récente doit
+    // s'appliquer, sinon un résultat ancien écrase le nouveau.
+    const seq = ++collecteSeq.current;
     setLoading(true);
     setError(null);
     try {
@@ -566,15 +579,32 @@ export default function App() {
         limit: Number(overLimite ?? limite),
         inclureAvertissements: overAvert ?? inclureAvert,
       });
+      if (collecteSeq.current !== seq) return;
       setEvents(result.events);
       setAvertissements(result.avertissements);
-      setSelected(null);
-      setDiagnostic(null);
+      // L'auto-refresh ne doit pas éjecter l'utilisateur de sa lecture :
+      // la sélection est conservée si l'événement est toujours collecté.
+      if (selected) {
+        const toujours = result.events.find(
+          (e) =>
+            e.recordId === selected.recordId &&
+            e.canal === selected.canal &&
+            e.timestamp === selected.timestamp &&
+            e.provider === selected.provider &&
+            e.eventId === selected.eventId,
+        );
+        if (toujours) setSelected(toujours);
+        else {
+          setSelected(null);
+          setDiagnostic(null);
+        }
+      }
     } catch (e) {
+      if (collecteSeq.current !== seq) return;
       setError(String(e));
       setEvents([]);
     } finally {
-      setLoading(false);
+      if (collecteSeq.current === seq) setLoading(false);
     }
   }
 
@@ -926,8 +956,13 @@ export default function App() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `audit-libre-eventlog-${audit.genereLe.replace(/[: ]/g, "-")}.md`;
+    // L'ancre doit être dans le document pour déclencher le téléchargement
+    // dans WebView2 ; l'URL d'objet n'est libérée qu'après un délai, le
+    // téléchargement démarre de façon asynchrone.
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 
   async function copierRapport() {

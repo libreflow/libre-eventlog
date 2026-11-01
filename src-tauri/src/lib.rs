@@ -552,12 +552,15 @@ fn is_elevated() -> bool {
 fn relancer_admin() -> Result<(), String> {
     let exe =
         std::env::current_exe().map_err(|e| format!("Exécutable introuvable : {}", e))?;
+    // Échappement PowerShell des guillemets simples ('' dans une chaîne
+    // '…') : un chemin contenant une apostrophe ne doit pas casser la commande.
+    let exe_escaped = exe.display().to_string().replace('\'', "''");
     let child = Command::new("powershell.exe")
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            &format!("Start-Process -FilePath '{}' -Verb RunAs", exe.display()),
+            &format!("Start-Process -FilePath '{exe_escaped}' -Verb RunAs"),
         ])
         .creation_flags_windows_no_window()
         .spawn()

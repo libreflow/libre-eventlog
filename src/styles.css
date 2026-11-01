@@ -431,6 +431,12 @@ tr:focus-visible {
   background: var(--surface-3);
 }
 
+/* Largeur réservée même sans flèche : l'en-tête ne saute pas au tri. */
+.sort-arrow {
+  display: inline-flex;
+  width: 13px;
+}
+
 .events-table td {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-soft);

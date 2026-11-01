@@ -506,8 +506,13 @@ export default function App() {
   chargerRef.current = charger;
 
   // Raccourcis clavier : F5 analyser, Ctrl+F recherche, Ctrl+T terminal.
+  // Ignorés pendant qu'une modale est ouverte : le clavier appartient à
+  // la modale (piège de focus, Échap), Ctrl+F ne doit pas voler le focus
+  // vers la recherche d'arrière-plan.
+  const modaleOuverte = !!confirmCmd || majOuverte || auditOuverte;
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
+      if (modaleOuverte) return;
       if (ev.key === "F5") {
         ev.preventDefault();
         chargerRef.current();
@@ -521,7 +526,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [modaleOuverte]);
 
   // Auto-rafraîchissement de la collecte.
   useEffect(() => {

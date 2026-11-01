@@ -7,6 +7,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // ignore la sortie de compilation Rust (fichiers verrouillés par cargo)
+      ignored: ["**/src-tauri/target/**"],
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {

@@ -1696,6 +1696,7 @@ name = "libre-eventlog"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "quick-xml",
  "serde",
  "serde_json",
  "tauri",

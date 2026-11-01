@@ -4,3 +4,4 @@ dist-ssr
 *.local
 src-tauri/target
 .DS_Store
+src-tauri/gen

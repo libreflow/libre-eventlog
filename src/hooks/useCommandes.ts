@@ -47,6 +47,9 @@ export function useCommandes() {
     }
   }, [notifications]);
   const dragTerminal = useRef<{ y: number; h: number } | null>(null);
+  // Tâche associée à la confirmation en cours (si elle n'est pas un
+  // correctif du catalogue) — ref : la modale se ferme sans re-render.
+  const tacheConfirmee = useRef<((entreeId: number) => Promise<CommandResult>) | null>(null);
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
 
@@ -195,6 +198,47 @@ export function useCommandes() {
   function demanderExecution(cmd: CommandeFix) {
     if (cmd.confirme) {
       setConfirmCmd(cmd);
+      tacheConfirmee.current = null;
+    } else {
+      executerCommande(cmd);
+    }
+  }
+
+  // Confirmation d'une tâche qui n'est PAS un correctif du catalogue
+  // (ex. désinstallation d'une application) : la CommandeFix affichée est
+  // synthétique, l'exécution passe par la tâche fournie. La confirmation
+  // reste systématique pour toute action destructive.
+  function demanderTacheTerminal(
+    cmd: CommandeFix,
+    tache: (entreeId: number) => Promise<CommandResult>,
+  ) {
+    if (cmd.confirme) {
+      setConfirmCmd(cmd);
+      tacheConfirmee.current = tache;
+    } else {
+      lancerTacheTerminal(
+        cmd.label,
+        cmd.commande,
+        cleCommande(cmd),
+        tache,
+        cmd.annulable !== false,
+      );
+    }
+  }
+
+  // Appelé par la modale de confirmation : exécute la tâche confirmée
+  // (désignée par demanderTacheTerminal) ou le correctif du catalogue.
+  function executerConfirme(cmd: CommandeFix) {
+    const tache = tacheConfirmee.current;
+    tacheConfirmee.current = null;
+    if (tache) {
+      lancerTacheTerminal(
+        cmd.label,
+        cmd.commande,
+        cleCommande(cmd),
+        tache,
+        cmd.annulable !== false,
+      );
     } else {
       executerCommande(cmd);
     }
@@ -215,6 +259,8 @@ export function useCommandes() {
     finirRedimension,
     executerCommande,
     demanderExecution,
+    demanderTacheTerminal,
+    executerConfirme,
     lancerTacheTerminal,
     annulerCommande,
     notifications,

@@ -1,7 +1,10 @@
 use std::process::Command;
 use std::time::Instant;
 
-use crate::powershell::{attendre_avec_timeout, enregistrer_processus, spawn_powershell, NoWindow};
+use crate::powershell::{
+    attendre_avec_timeout, desenregistrer_processus, enregistrer_processus, spawn_powershell,
+    NoWindow,
+};
 use crate::securite::is_elevated;
 use crate::types::*;
 
@@ -371,4 +374,51 @@ pub fn mise_a_jour_applications(
         duration_ms: start.elapsed().as_millis(),
         elevated,
     })
+}
+
+// Désinstalle une application par son identifiant winget exact. L'ID vient
+// de notre propre scan ; on le revalide avant de le passer à winget (aucun
+// séparateur de commande, pas d'espace) pour écarter toute injection. La
+// sortie est diffusée en temps réel dans le terminal et journalisée.
+#[tauri::command]
+pub async fn desinstaller_application(
+    id: String,
+    entree_id: u64,
+    app: tauri::AppHandle,
+) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let id = id.trim();
+        if id.is_empty()
+            || id
+                .chars()
+                .any(|c| c.is_whitespace() || matches!(c, ';' | '|' | '&' | '<' | '>'))
+        {
+            return Err("Identifiant d'application invalide.".to_string());
+        }
+        let elevated = is_elevated();
+        let start = Instant::now();
+        log::info!("[desinstall] winget uninstall --id {id}");
+        let child = spawn_winget(&[
+            "uninstall",
+            "--id",
+            id,
+            "--exact",
+            "--silent",
+            "--accept-source-agreements",
+            "--disable-interactivity",
+        ])?;
+        enregistrer_processus(entree_id, child.id());
+        let out = attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES, Some((app, entree_id)))?;
+        desenregistrer_processus(entree_id);
+        log::info!("[desinstall] {id} -> code {:?}", out.status.code());
+        Ok(CommandResult {
+            stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+            exit_code: out.status.code(),
+            duration_ms: start.elapsed().as_millis(),
+            elevated,
+        })
+    })
+    .await
+    .map_err(|e| format!("La désinstallation a échoué : {}", e))?
 }

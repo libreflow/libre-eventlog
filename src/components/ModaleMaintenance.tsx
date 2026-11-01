@@ -38,6 +38,7 @@ export function ModaleMaintenance({
   onTogglePaquet,
   onToggleTout,
   onMajApps,
+  onDesinstaller,
   // Windows Update
   chargementWu,
   scanFaitWu,
@@ -72,6 +73,7 @@ export function ModaleMaintenance({
   onTogglePaquet: (id: string) => void;
   onToggleTout: () => void;
   onMajApps: (ids: string[]) => void;
+  onDesinstaller: (paquet: import("../types").WingetPackage) => void;
   chargementWu: boolean;
   scanFaitWu: boolean;
   erreurWu: string | null;
@@ -167,19 +169,30 @@ export function ModaleMaintenance({
                   </strong>
                 </label>
                 {paquetsApps.map((p) => (
-                  <label key={p.id} className="maj-item">
-                    <input
-                      type="checkbox"
-                      checked={selectionApps.has(p.id)}
-                      onChange={() => onTogglePaquet(p.id)}
-                    />
-                    <span className="maj-nom" title={p.id}>
-                      {p.name}
-                    </span>
-                    <span className="maj-versions mono">
-                      {p.version} → {p.available}
-                    </span>
-                  </label>
+                  <div key={p.id} className="maj-item">
+                    <label className="maj-item-label">
+                      <input
+                        type="checkbox"
+                        checked={selectionApps.has(p.id)}
+                        onChange={() => onTogglePaquet(p.id)}
+                      />
+                      <span className="maj-nom" title={p.id}>
+                        {p.name}
+                      </span>
+                      <span className="maj-versions mono">
+                        {p.version} → {p.available}
+                      </span>
+                    </label>
+                    <button
+                      className="btn small"
+                      onClick={() => onDesinstaller(p)}
+                      disabled={runningCmd !== null}
+                      title={`Désinstaller ${p.name} (confirmation demandée)`}
+                    >
+                      <Trash2 className="icon" aria-hidden="true" />
+                      <span className="sr-only">Désinstaller {p.name}</span>
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

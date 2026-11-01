@@ -66,7 +66,8 @@ pub fn run() {
             annuler_commande,
             lire_journal,
             purger_journal,
-            lire_message_evenement
+            lire_message_evenement,
+            desinstaller_application
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Libre EventLog");

@@ -101,8 +101,9 @@ export default function App() {
     commencerRedimension,
     bougerRedimension,
     finirRedimension,
-    executerCommande,
     demanderExecution,
+    demanderTacheTerminal,
+    executerConfirme,
     lancerTacheTerminal,
     annulerCommande,
     notifications,
@@ -238,6 +239,25 @@ export default function App() {
       s.size === majPaquets.length
         ? new Set()
         : new Set(majPaquets.map((p) => p.id)),
+    );
+  }
+
+  // Désinstallation d'une application : confirmation systématique (modale),
+  // exécution dédiée côté backend (id revalidé), sortie streamée et
+  // journalisée dans le terminal.
+  function demanderDesinstallation(p: WingetPackage) {
+    demanderTacheTerminal(
+      {
+        label: `Désinstaller ${p.name}`,
+        description: `winget uninstall --id ${p.id} --exact — supprime définitivement « ${p.name} » de cette machine.`,
+        commande: `winget uninstall --id ${p.id} --exact (maintenance intégrée)`,
+        type: "action",
+        elevation: false,
+        confirme: true,
+        annulable: true,
+      },
+      (entreeId) =>
+        invoke<CommandResult>("desinstaller_application", { id: p.id, entreeId }),
     );
   }
 
@@ -798,6 +818,7 @@ export default function App() {
           onTogglePaquet={togglePaquet}
           onToggleTout={toggleTout}
           onMajApps={executerMajApps}
+          onDesinstaller={demanderDesinstallation}
           chargementWu={wuChargement}
           scanFaitWu={wuScanFait}
           erreurWu={wuErreur}
@@ -840,7 +861,7 @@ export default function App() {
           onAnnuler={() => setConfirmCmd(null)}
           onExecuter={(c) => {
             setConfirmCmd(null);
-            executerCommande(c);
+            executerConfirme(c);
           }}
         />
       )}

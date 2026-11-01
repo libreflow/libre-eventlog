@@ -1864,3 +1864,13 @@ input {
   padding: 2px;
   margin-right: 4px;
 }
+
+/* Ligne d'application : label cochable + action dédiée (désinstallation) */
+.maj-item-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}

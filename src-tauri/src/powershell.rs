@@ -86,7 +86,7 @@ pub fn enregistrer_processus(entree_id: u64, pid: u32) {
     processus_actifs().lock().unwrap().insert(entree_id, pid);
 }
 
-fn desenregistrer_processus(entree_id: u64) {
+pub fn desenregistrer_processus(entree_id: u64) {
     processus_actifs().lock().unwrap().remove(&entree_id);
 }
 

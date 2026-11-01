@@ -223,6 +223,83 @@ function severityClass(e: CriticalEvent): string {
   return "info";
 }
 
+// Libellé humain du jour de regroupement : « Aujourd'hui », « Hier », date.
+function libelleJour(dateCle: string): string {
+  const d = new Date(`${dateCle}T12:00:00`);
+  const ref = new Date();
+  ref.setHours(12, 0, 0, 0);
+  const hier = new Date(ref);
+  hier.setDate(hier.getDate() - 1);
+  if (d.getTime() === ref.getTime()) return "Aujourd'hui";
+  if (d.getTime() === hier.getTime()) return "Hier";
+  return d.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
+// Anneau de score (SVG) : la progression s'anime au montage.
+function Anneau({
+  score,
+  taille,
+  gros = false,
+}: {
+  score: number;
+  taille: number;
+  gros?: boolean;
+}) {
+  const [anime, setAnime] = useState(false);
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setAnime(true));
+    return () => cancelAnimationFrame(t);
+  }, [score]);
+  const epaisseur = gros ? 9 : 7;
+  const rayon = (taille - epaisseur * 2) / 2;
+  const circonference = 2 * Math.PI * rayon;
+  const cible = circonference * (1 - score / 100);
+  const classe = score >= 80 ? "ok" : score >= 50 ? "moyen" : "mauvais";
+  return (
+    <svg
+      width={taille}
+      height={taille}
+      className={`anneau ${classe}`}
+      role="img"
+      aria-label={`Score ${score} sur 100`}
+    >
+      <circle
+        cx={taille / 2}
+        cy={taille / 2}
+        r={rayon}
+        fill="none"
+        className="anneau-fond"
+        strokeWidth={epaisseur}
+      />
+      <circle
+        cx={taille / 2}
+        cy={taille / 2}
+        r={rayon}
+        fill="none"
+        className="anneau-valeur"
+        strokeWidth={epaisseur}
+        strokeLinecap="round"
+        strokeDasharray={circonference}
+        strokeDashoffset={anime ? cible : circonference}
+        transform={`rotate(-90 ${taille / 2} ${taille / 2})`}
+      />
+      <text
+        x="50%"
+        y="50%"
+        dominantBaseline="central"
+        textAnchor="middle"
+        className={`anneau-texte ${gros ? "gros" : ""}`}
+      >
+        {score}
+      </text>
+    </svg>
+  );
+}
+
 // Copie dans le presse-papiers avec repli (execCommand) si l'API Clipboard
 // n'est pas disponible dans le webview.
 async function copierTexte(texte: string): Promise<void> {
@@ -1043,31 +1120,45 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {filtres.map((e, i) => (
-                <tr
-                  key={`${e.timestamp}-${e.provider}-${i}`}
-                  className={selected === e ? "selected" : ""}
-                  tabIndex={0}
-                  onClick={() => selectionner(e)}
-                  onKeyDown={(ev) => {
-                    if (ev.key === "Enter" || ev.key === " ") {
-                      ev.preventDefault();
-                      selectionner(e);
-                    }
-                  }}
-                >
-                  <td className="mono">{formatDate(e.timestamp)}</td>
-                  <td>{e.canal}</td>
-                  <td title={e.provider}>{e.provider}</td>
-                  <td className="mono align-right">{e.eventId}</td>
-                  <td>
-                    <span className={`badge ${severityClass(e)}`}>
-                      <span className="badge-point" aria-hidden="true" />
-                      {e.severity}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {filtres.map((e, i) => {
+                // Regroupement par jour, uniquement dans le tri par date
+                // (le tri par défaut) : en-têtes « Aujourd'hui », « Hier »…
+                const lignes: React.ReactNode[] = [];
+                const cleJour = new Date(e.timestamp).toDateString();
+                if (sortKey === "timestamp" && (i === 0 || new Date(filtres[i - 1].timestamp).toDateString() !== cleJour)) {
+                  lignes.push(
+                    <tr key={`jour-${cleJour}`} className="groupe-jour">
+                      <td colSpan={5}>{libelleJour(cleJour)}</td>
+                    </tr>,
+                  );
+                }
+                lignes.push(
+                  <tr
+                    key={`${e.recordId}-${e.canal}-${e.timestamp}-${i}`}
+                    className={`${selected === e ? "selected" : ""} ${e.level === 1 ? "niveau-critique" : ""}`}
+                    tabIndex={0}
+                    onClick={() => selectionner(e)}
+                    onKeyDown={(ev) => {
+                      if (ev.key === "Enter" || ev.key === " ") {
+                        ev.preventDefault();
+                        selectionner(e);
+                      }
+                    }}
+                  >
+                    <td className="mono">{formatDate(e.timestamp)}</td>
+                    <td>{e.canal}</td>
+                    <td title={e.provider}>{e.provider}</td>
+                    <td className="mono align-right">{e.eventId}</td>
+                    <td>
+                      <span className={`badge ${severityClass(e)}`}>
+                        <span className="badge-point" aria-hidden="true" />
+                        {e.severity}
+                      </span>
+                    </td>
+                  </tr>,
+                );
+                return lignes;
+              })}
               {filtres.length === 0 && !loading && (
                 <tr>
                   <td colSpan={5} className="empty-state">
@@ -1363,12 +1454,14 @@ export default function App() {
                   Le score pénalise chaque problème par gravité et par nombre d'occurrences.
                 </p>
 
-                <div className="audit-global">
-                  <div className="audit-score-label">Score global</div>
-                  <div
-                    className={`audit-score ${audit.global >= 80 ? "bon" : audit.global >= 50 ? "moyen" : "mauvais"}`}
-                  >
-                    {audit.global}/100
+                <div className="audit-entete">
+                  <Anneau score={audit.global} taille={116} gros />
+                  <div className="audit-entete-texte">
+                    <strong>Score global de santé</strong>
+                    <span>
+                      {audit.totalEvenements} événement(s) analysé(s) — {audit.problemes.length} problème(s) distinct(s)
+                    </span>
+                    <span className="audit-date">{audit.genereLe}</span>
                   </div>
                 </div>
 
@@ -1376,16 +1469,13 @@ export default function App() {
                   <div className="audit-categories">
                     {audit.categories.map((c) => (
                       <div key={c.categorie} className="audit-categorie">
-                        <div className="audit-categorie-tete">
-                          <span>{c.categorie}</span>
-                          <span className="mono">{c.score}/100</span>
+                        <Anneau score={c.score} taille={58} />
+                        <div className="audit-categorie-texte">
+                          <strong>{c.categorie}</strong>
+                          <span>
+                            {c.problemes} problème{c.problemes > 1 ? "s" : ""}
+                          </span>
                         </div>
-                        <div
-                          className={`audit-jauge ${c.score >= 80 ? "bon" : c.score >= 50 ? "moyen" : "mauvais"}`}
-                        >
-                          <div className="audit-jauge-remplie" style={{ width: `${c.score}%` }} />
-                        </div>
-                        <span className="audit-categorie-nb">{c.problemes} problème(s)</span>
                       </div>
                     ))}
                   </div>

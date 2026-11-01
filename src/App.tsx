@@ -2,11 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
-  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Copy,
   Cpu,
   Download,
   ExternalLink,
@@ -23,11 +21,8 @@ import {
   ShieldCheck,
   ShieldOff,
   Sun,
-  TerminalSquare,
-  Trash2,
   Wrench,
   X,
-  XCircle,
 } from "lucide-react";
 import type {
   AuditSante,
@@ -41,7 +36,10 @@ import type {
   WinUpdate,
   WingetPackage,
 } from "./types";
-import { Anneau } from "./components/Anneau";
+import { Terminal } from "./components/Terminal";
+import { ModaleConfirmation } from "./components/ModaleConfirmation";
+import { ModaleAudit } from "./components/ModaleAudit";
+import type { TerminalEntry } from "./components/Terminal";
 import { LienExterne } from "./components/LienExterne";
 import { usePiegeFocus } from "./hooks/usePiegeFocus";
 import {
@@ -54,7 +52,7 @@ import {
 } from "./lib/evenements";
 import { CODES_PROBLEME, fabricantTrouve } from "./lib/materiel";
 import { copierTexte } from "./lib/pressepapiers";
-import { clePlanAction, rapportMarkdown } from "./lib/rapport";
+import { rapportMarkdown } from "./lib/rapport";
 
 // Maintenance intégrée : sélection des applications à mettre à jour via
 // winget, purge des installateurs résiduels et détection des anciennes
@@ -161,15 +159,6 @@ const COLONNES: { key: SortKey; label: string; align?: "right" }[] = [
   { key: "severity", label: "Sévérité" },
 ];
 
-interface TerminalEntry {
-  id: number;
-  label: string;
-  commande: string;
-  result: CommandResult | null;
-  error: string | null;
-  running: boolean;
-  time: string;
-}
 
 export default function App() {
   const [events, setEvents] = useState<CriticalEvent[]>([]);
@@ -1242,229 +1231,35 @@ export default function App() {
         </aside>
       </div>
 
-      {terminalOuvert && (
-        <div
-          className="terminal"
-          role="log"
-          aria-label="Terminal des commandes exécutées"
-          style={{ flexBasis: terminalHauteur }}
-        >
-          <div
-            className="terminal-poignee"
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Redimensionner le terminal"
-            onPointerDown={commencerRedimension}
-            onPointerMove={bougerRedimension}
-            onPointerUp={finirRedimension}
-            onPointerCancel={finirRedimension}
-          />
-          <div className="terminal-head">
-            <span className="terminal-title">
-              <TerminalSquare className="icon" aria-hidden="true" />
-              Terminal — exécution PowerShell
-            </span>
-            <div className="terminal-actions">
-              <button
-                className="btn small"
-                onClick={() => setTerminal([])}
-                disabled={terminal.length === 0}
-              >
-                <Trash2 className="icon" aria-hidden="true" />
-                Effacer
-              </button>
-              <button className="btn small" onClick={() => setTerminalOuvert(false)}>
-                <X className="icon" aria-hidden="true" />
-                Réduire
-              </button>
-            </div>
-          </div>
-          <div className="terminal-body" ref={termRef}>
-            {terminal.length === 0 && (
-              <p className="terminal-empty">
-                Aucune commande exécutée. Les résultats des correctifs s'afficheront ici,
-                sans ouvrir de fenêtre externe.
-              </p>
-            )}
-            {terminal.map((entry) => {
-              const res = entry.result;
-              return (
-              <div
-                key={entry.id}
-                className={`term-entry ${entry.running ? "running" : res ? (res.exitCode === 0 ? "term-ok" : "term-ko") : ""}`}
-              >
-                <div className="term-cmd-line">
-                  <span className="term-time">{entry.time}</span>
-                  <span className="term-label">{entry.label}</span>
-                </div>
-                <code className="cmd-line">{entry.commande}</code>
-                {entry.running && (
-                  <p className="term-status">
-                    <Loader2 className="icon spin" aria-hidden="true" /> Exécution en cours…
-                  </p>
-                )}
-                {entry.error && <pre className="term-err">{entry.error}</pre>}
-                {res && (
-                  <>
-                    {res.stdout && <pre className="term-out">{res.stdout}</pre>}
-                    {res.stderr && <pre className="term-err">{res.stderr}</pre>}
-                    <p className="term-status">
-                      {res.exitCode === 0 ? (
-                        <CheckCircle2 className="icon ok" aria-hidden="true" />
-                      ) : (
-                        <XCircle className="icon err" aria-hidden="true" />
-                      )}
-                      Terminé en {res.durationMs} ms — code{" "}
-                      {res.exitCode ?? "?"}
-                      <button
-                        className="btn small copier-btn"
-                        onClick={() =>
-                          copierTexte(`${entry.commande}\n${res.stdout}\n${res.stderr}`)
-                        }
-                        title="Copier la commande et sa sortie"
-                      >
-                        <Copy className="icon" aria-hidden="true" />
-                        Copier
-                      </button>
-                    </p>
-                  </>
-                )}
-              </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {!terminalOuvert && terminal.length > 0 && (
-        <button className="btn terminal-restore" onClick={() => setTerminalOuvert(true)}>
-          <TerminalSquare className="icon" aria-hidden="true" /> Terminal ({terminal.length})
-        </button>
-      )}
+      <Terminal
+        ouvert={terminalOuvert}
+        onOuvrir={() => setTerminalOuvert(true)}
+        onFermer={() => setTerminalOuvert(false)}
+        onEffacer={() => setTerminal([])}
+        hauteur={terminalHauteur}
+        entries={terminal}
+        termRef={termRef}
+        onCommencerRedimension={commencerRedimension}
+        onBougerRedimension={bougerRedimension}
+        onFinirRedimension={finirRedimension}
+      />
 
       {auditOuverte && (
-        <div
-          className="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="audit-title"
-          onClick={() => !auditChargement && setAuditOuverte(false)}
-        >
-          <div className="modal modal-maj" ref={auditModalRef} onClick={(e) => e.stopPropagation()}>
-            <h3 id="audit-title">
-              <HeartPulse className="icon" aria-hidden="true" /> Audit de santé
-            </h3>
-
-            {auditChargement && (
-              <p className="maj-status">
-                <Loader2 className="icon spin" aria-hidden="true" /> Collecte et agrégation des événements…
-              </p>
-            )}
-
-            {!auditChargement && audit && (
-              <>
-                <p className="cmd-desc">
-                  {audit.totalEvenements} événement(s) analysé(s) le {audit.genereLe}.
-                  Le score pénalise chaque problème par gravité et par nombre d'occurrences.
-                </p>
-
-                <div className="audit-entete">
-                  <Anneau score={audit.global} taille={116} gros />
-                  <div className="audit-entete-texte">
-                    <strong>Score global de santé</strong>
-                    <span>
-                      {audit.totalEvenements} événement(s) analysé(s) — {audit.problemes.length} problème(s) distinct(s)
-                    </span>
-                    <span className="audit-date">{audit.genereLe}</span>
-                  </div>
-                </div>
-
-                {audit.categories.length > 0 && (
-                  <div className="audit-categories">
-                    {audit.categories.map((c) => (
-                      <div key={c.categorie} className="audit-categorie">
-                        <Anneau score={c.score} taille={58} />
-                        <div className="audit-categorie-texte">
-                          <strong>{c.categorie}</strong>
-                          <span>
-                            {c.problemes} problème{c.problemes > 1 ? "s" : ""}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {audit.problemes.length > 0 && (
-                  <div className="maj-liste" role="group" aria-label="Problèmes détectés">
-                    {audit.problemes.map((p) => {
-                      const cle = `${p.provider}/${p.eventId}`;
-                      return (
-                        <div key={cle} className="audit-probleme">
-                          <div className="audit-probleme-tete">
-                            <span className={`badge ${severityClass({ level: p.level })}`}>
-                              {p.count}×
-                            </span>
-                            <button
-                              className="audit-probleme-titre"
-                              onClick={() => {
-                                setRecherche(String(p.eventId));
-                                setCanal("Tous");
-                                setAuditOuverte(false);
-                              }}
-                              title="Filtrer la liste des événements sur ce problème"
-                            >
-                              {p.titre}
-                            </button>
-                          </div>
-                          {p.etapes.length > 0 && (
-                            <ul className="audit-etapes">
-                              {p.etapes.map((etape, i) => {
-                                const cleEtape = clePlanAction({ provider: p.provider, eventId: p.eventId, index: i });
-                                return (
-                                  <li key={i}>
-                                    <label className="audit-etape">
-                                      <input
-                                        type="checkbox"
-                                        checked={!!planAction[cleEtape]}
-                                        onChange={() => toggleEtapePlan(cleEtape)}
-                                      />
-                                      <span className={planAction[cleEtape] ? "fait" : ""}>{etape}</span>
-                                    </label>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="modal-actions">
-                  <button className="btn" onClick={() => setAuditOuverte(false)}>
-                    Fermer
-                  </button>
-                  <button className="btn" onClick={copierRapport}>
-                    {rapportCopie ? (
-                      <>
-                        <Check className="icon ok" aria-hidden="true" /> Copié !
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="icon" aria-hidden="true" /> Copier le rapport
-                      </>
-                    )}
-                  </button>
-                  <button className="btn primary" onClick={telechargerRapport}>
-                    <Download className="icon" aria-hidden="true" /> Télécharger (.md)
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        <ModaleAudit
+          audit={audit}
+          chargement={auditChargement}
+          planAction={planAction}
+          onToggleEtape={toggleEtapePlan}
+          onFermer={() => setAuditOuverte(false)}
+          onFiltreProbleme={(eventId) => {
+            setRecherche(String(eventId));
+            setCanal("Tous");
+            setAuditOuverte(false);
+          }}
+          onCopier={copierRapport}
+          rapportCopie={rapportCopie}
+          onTelecharger={telechargerRapport}
+        />
       )}
 
       {majOuverte && (
@@ -1803,46 +1598,15 @@ export default function App() {
       )}
 
       {confirmCmd && (
-        <div
-          className="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="confirm-title"
-          onClick={() => setConfirmCmd(null)}
-        >
-          <div className="modal" ref={confirmModalRef} onClick={(e) => e.stopPropagation()}>
-            <h3 id="confirm-title"><AlertTriangle className="icon warn" aria-hidden="true" /> Confirmer l'exécution</h3>
-            <p>
-              Vous êtes sur le point d'exécuter la commande suivante sur ce système :
-            </p>
-            {confirmCmd.description && (
-              <p className="cmd-desc">{confirmCmd.description}</p>
-            )}
-            <code className="cmd-line">{confirmCmd.commande}</code>
-            {confirmCmd.elevation && elevated === false && (
-              <p className="modal-warn">
-                🔐 Cette commande nécessite des droits administrateur, mais l'application
-                n'est pas élevée. Elle échouera probablement.
-              </p>
-            )}
-            <div className="modal-actions">
-              <button className="btn" onClick={() => setConfirmCmd(null)}>
-                Annuler
-              </button>
-              <button
-                className="btn primary"
-                onClick={() => {
-                  const cmd = confirmCmd;
-                  setConfirmCmd(null);
-                  executerCommande(cmd);
-                }}
-              >
-                <Play className="icon" aria-hidden="true" />
-                Exécuter
-              </button>
-            </div>
-          </div>
-        </div>
+        <ModaleConfirmation
+          cmd={confirmCmd}
+          elevated={elevated}
+          onAnnuler={() => setConfirmCmd(null)}
+          onExecuter={(c) => {
+            setConfirmCmd(null);
+            executerCommande(c);
+          }}
+        />
       )}
     </div>
   );

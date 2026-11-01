@@ -1735,7 +1735,7 @@ export default function App() {
                     {hwProblemes.map((p) => (
                       <div key={p.instanceId} className="maj-item hw-probleme">
                         <span className="maj-nom" title={p.instanceId}>
-                          {p.name}
+                          {p.name || p.instanceId || "Périphérique inconnu"}
                         </span>
                         <span className="hw-code">
                           code {p.problemCode || "?"}

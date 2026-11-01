@@ -606,7 +606,8 @@ mod tests_winget {
         let peripheriques =
             lister_peripheriques_problemes().expect("l'énumération PnP doit réussir");
         for p in &peripheriques {
-            assert!(!p.name.is_empty());
+            // Le nom convivial peut être vide en environnement réel (VM de CI
+            // sans driver friendly-name) : l'UI affiche alors l'instance.
             assert!(!p.instance_id.is_empty());
         }
     }

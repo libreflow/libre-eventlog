@@ -10,7 +10,9 @@ import {
   Cpu,
   Download,
   ExternalLink,
+  FileSearch,
   HeartPulse,
+  Inbox,
   Lock,
   Loader2,
   Moon,
@@ -767,7 +769,7 @@ export default function App() {
           <img src="/icon.svg" alt="" className="logo-img" aria-hidden="true" />
           <div>
             <h1>Libre EventLog</h1>
-            <p>Événements critiques et erreurs Windows, avec correctifs suggérés</p>
+            <p>Diagnostic, maintenance et audit de santé Windows</p>
           </div>
         </div>
         <div className="stats" role="status">
@@ -1018,10 +1020,20 @@ export default function App() {
               ))}
               {filtres.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={5} className="empty">
-                    {events.length === 0
-                      ? "Aucun événement. Cliquez sur « Analyser le journal »."
-                      : "Aucun résultat pour ces filtres."}
+                  <td colSpan={5} className="empty-state">
+                    <span className="icon-circle">
+                      <Inbox className="icon" aria-hidden="true" />
+                    </span>
+                    <strong>
+                      {events.length === 0
+                        ? "Aucun événement collecté"
+                        : "Aucun résultat"}
+                    </strong>
+                    <span>
+                      {events.length === 0
+                        ? "Lancez « Analyser le journal » pour collecter les événements critiques et erreurs de la machine."
+                        : "Aucun événement ne correspond à ces filtres."}
+                    </span>
                   </td>
                 </tr>
               )}
@@ -1032,8 +1044,10 @@ export default function App() {
         <aside className="detail" aria-live="polite">
           {!selected && (
             <div className="detail-empty">
-              <img src="/icon.svg" alt="" className="detail-logo" aria-hidden="true" />
-              <p>Sélectionnez un événement pour voir le diagnostic et les correctifs exécutables.</p>
+              <span className="icon-circle">
+                <FileSearch className="icon" aria-hidden="true" />
+              </span>
+              <p>Sélectionnez un événement pour voir son diagnostic et les correctifs exécutables.</p>
             </div>
           )}
           {selected && (

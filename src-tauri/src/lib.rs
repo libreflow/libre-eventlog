@@ -439,7 +439,7 @@ const PS_DENYLIST: &[&str] = &[
 // un cmdlet dont le verbe est autorisé. La denylist reste en second filet.
 const EXE_AUTORISES: &[&str] = &[
     "sfc", "dism", "chkdsk", "ipconfig", "netsh", "powercfg", "winget",
-    "wevtutil", "whoami", "nslookup", "arp", "mdsched", "cleanmgr", "ver",
+    "wevtutil", "whoami", "nslookup", "arp", "mdsched", "cleanmgr",
 ];
 const VERBES_CMDLETS: &[&str] = &[
     "get", "show", "test", "measure", "repair", "resolve", "select",

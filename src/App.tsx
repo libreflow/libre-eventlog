@@ -248,6 +248,7 @@ export default function App() {
   const [auditChargement, setAuditChargement] = useState(false);
   const [audit, setAudit] = useState<AuditSante | null>(null);
   const [planAction, setPlanAction] = useState<Record<string, boolean>>({});
+  const [rapportCopie, setRapportCopie] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState("0");
   const [theme, setTheme] = useState<string>(() => {
     try {
@@ -308,16 +309,17 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    if (!confirmCmd && !majOuverte) return;
+    if (!confirmCmd && !majOuverte && !auditOuverte) return;
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") {
         setConfirmCmd(null);
         setMajOuverte(false);
+        setAuditOuverte(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmCmd, majOuverte]);
+  }, [confirmCmd, majOuverte, auditOuverte]);
 
   useEffect(() => {
     document.title = selected
@@ -578,20 +580,27 @@ export default function App() {
     [events],
   );
 
+  // Si le canal filtré n'existe plus dans la nouvelle collecte (ex. Security
+  // collecté une fois en administrateur puis application relancée non
+  // élevée), le filtre ne correspondrait plus à rien : retour à « Tous ».
+  useEffect(() => {
+    if (canal !== "Tous" && !canauxDisponibles.includes(canal)) {
+      setCanal("Tous");
+    }
+  }, [canauxDisponibles, canal]);
+
   // Plan d'action persistant (localStorage) : étapes cochées par problème.
   const clePlanAction = (p: { provider: string; eventId: number; index: number }) =>
     `${p.provider}/${p.eventId}/${p.index}`;
 
   function toggleEtapePlan(cle: string) {
-    setPlanAction((p) => {
-      const n = { ...p, [cle]: !p[cle] };
-      try {
-        localStorage.setItem("libre-eventlog-plan", JSON.stringify(n));
-      } catch {
-        /* localStorage indisponible : l'état reste en mémoire */
-      }
-      return n;
-    });
+    const n = { ...planAction, [cle]: !planAction[cle] };
+    setPlanAction(n);
+    try {
+      localStorage.setItem("libre-eventlog-plan", JSON.stringify(n));
+    } catch {
+      /* persistance indisponible : l'état reste en mémoire */
+    }
   }
 
   useEffect(() => {
@@ -617,7 +626,7 @@ export default function App() {
     }
   }
 
-  function rapportMarkdown(a: AuditSante): string {
+  function rapportMarkdown(a: AuditSante, plan: Record<string, boolean>): string {
     const lignes: string[] = [
       `# Rapport d'audit — Libre EventLog`,
       ``,
@@ -646,7 +655,10 @@ export default function App() {
         );
         if (p.etapes.length > 0) {
           lignes.push(`Étapes recommandées :`);
-          for (const e of p.etapes) lignes.push(`- [ ] ${e}`);
+          for (let i = 0; i < p.etapes.length; i++) {
+            const faite = !!plan[clePlanAction({ provider: p.provider, eventId: p.eventId, index: i })];
+            lignes.push(`- [${faite ? "x" : " "}] ${p.etapes[i]}`);
+          }
           lignes.push(``);
         }
       }
@@ -658,13 +670,20 @@ export default function App() {
 
   function telechargerRapport() {
     if (!audit) return;
-    const blob = new Blob([rapportMarkdown(audit)], { type: "text/markdown" });
+    const blob = new Blob([rapportMarkdown(audit, planAction)], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `audit-libre-eventlog-${audit.genereLe.replace(/[: ]/g, "-")}.md`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function copierRapport() {
+    if (!audit) return;
+    await copierTexte(rapportMarkdown(audit, planAction));
+    setRapportCopie(true);
+    setTimeout(() => setRapportCopie(false), 2000);
   }
 
   const filtres = useMemo(() => {
@@ -711,7 +730,8 @@ export default function App() {
   }
 
   const nbCritiques = filtres.filter((e) => e.level === 1).length;
-  const nbErreurs = filtres.length - nbCritiques;
+  const nbErreurs = filtres.filter((e) => e.level === 2).length;
+  const nbAvertissements = filtres.filter((e) => e.level === 3).length;
 
   return (
     <div className="app">
@@ -759,6 +779,11 @@ export default function App() {
           <span className="stat erreur">
             <strong>{nbErreurs}</strong> erreur{nbErreurs > 1 ? "s" : ""}
           </span>
+          {nbAvertissements > 0 && (
+            <span className="stat avertissement">
+              <strong>{nbAvertissements}</strong> avertissement{nbAvertissements > 1 ? "s" : ""}
+            </span>
+          )}
           {events.length > 0 && (
             <span className="stat muted">
               {filtres.length} / {events.length} affiché{filtres.length > 1 ? "s" : ""}
@@ -1244,8 +1269,8 @@ export default function App() {
                   <button className="btn" onClick={() => setAuditOuverte(false)}>
                     Fermer
                   </button>
-                  <button className="btn" onClick={() => audit && copierTexte(rapportMarkdown(audit))}>
-                    📋 Copier le rapport
+                  <button className="btn" onClick={copierRapport}>
+                    {rapportCopie ? "✅ Copié !" : "📋 Copier le rapport"}
                   </button>
                   <button className="btn primary" onClick={telechargerRapport}>
                     💾 Télécharger (.md)

@@ -156,6 +156,10 @@ body {
   color: var(--warn);
 }
 
+.stat.avertissement strong {
+  color: var(--accent);
+}
+
 .stat.muted {
   opacity: 0.85;
 }

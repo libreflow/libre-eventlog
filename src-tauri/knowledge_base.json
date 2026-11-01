@@ -281,6 +281,294 @@
           "Tester RAM (mdsched.exe) et disque."
         ],
         "categorie": "bsod"
+      },
+      {
+        "match": {
+          "provider": "disk",
+          "event_id": 11
+        },
+        "titre": "Erreur du pilote de contrôleur de disque (disk 11)",
+        "cause": "Le contrôleur ou le câblage du disque signale des erreurs : câble SATA défectueux, contrôleur saturé ou disque défaillant.",
+        "etapes": [
+          "Vérifier le câblage SATA/alimentation du disque concerné (rébrancher, changer de port).",
+          "Contrôler l'état S.M.A.R.T. du disque (commande ci-dessous).",
+          "Mettre à jour le pilote du contrôleur de stockage (chipset Intel/AMD).",
+          "Si les erreurs persistent, sauvegarder les données et envisager le remplacement du disque."
+        ],
+        "categorie": "stockage",
+        "commandes": [
+          {
+            "label": "État des disques physiques",
+            "description": "HealthStatus de tous les disques",
+            "commande": "Get-PhysicalDisk | Select-Object FriendlyName, MediaType, HealthStatus, OperationalStatus | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "disk",
+          "event_id": 51
+        },
+        "titre": "Erreur de page sur le disque (disk 51)",
+        "cause": "Erreur lors d'une opération de pagination : le fichier d'échange n'a pas pu être lu/écrit, souvent à cause d'un disque défaillant.",
+        "etapes": [
+          "Vérifier l'état S.M.A.R.T. et la santé du disque système.",
+          "Exécuter chkdsk C: /scan pour vérifier le système de fichiers.",
+          "Contrôler la mémoire RAM (mdsched.exe) — des erreurs de pagination peuvent venir de la RAM.",
+          "Vérifier l'espace libre sur le disque système."
+        ],
+        "categorie": "stockage",
+        "commandes": [
+          {
+            "label": "Santé et température des disques",
+            "description": "Compteurs de fiabilité S.M.A.R.T.",
+            "commande": "Get-PhysicalDisk | Get-StorageReliabilityCounter | Select-Object DeviceId, Temperature, Wear, ReadErrorsTotal, WriteErrorsTotal | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "volmgr",
+          "event_id": 162
+        },
+        "titre": "Échec d'écriture en cache (volmgr 162)",
+        "cause": "Le gestionnaire de volumes n'a pas pu écrire dans le cache : perte de cache write-back sur un contrôleur ou alimentation instable.",
+        "etapes": [
+          "Vérifier l'alimentation (onduleur recommandé pour les caches write-back).",
+          "Vérifier l'état du disque et de la carte contrôleur.",
+          "Mettre à jour les pilotes de stockage et le firmware du disque."
+        ],
+        "categorie": "stockage",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": "volsnap",
+          "event_id": 25
+        },
+        "titre": "Copie fantôme supprimée par manque d'espace (volsnap 25)",
+        "cause": "Les instantanés Volume Shadow Copy ont été supprimés faute d'espace disque : les points de restauration et l'historique de fichiers sont perdus.",
+        "etapes": [
+          "Libérer de l'espace sur le volume concerné.",
+          "Vérifier la taille allouée à Shadow Copies (vssadmin).",
+          "Envisager une allocation dédiée pour les instantanés."
+        ],
+        "categorie": "stockage",
+        "commandes": [
+          {
+            "label": "Espace de stockage des instantanés",
+            "description": "Liste l'espace utilisé par VSS",
+            "commande": "Get-CimInstance Win32_ShadowStorage | Select-Object DiffVolume, UsedSpace, MaxSpace | Format-List",
+            "type": "lecture",
+            "elevation": true,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Ntfs",
+          "event_id": 50
+        },
+        "titre": "Avertissement NTFS (Ntfs 50)",
+        "cause": "NTFS signale un problème sur le volume : espace insuffisant pour les métadonnées ou corruption naissante du système de fichiers.",
+        "etapes": [
+          "Exécuter chkdsk C: /scan (onget « Analyser le disque système » dans Maintenance > Correctifs).",
+          "Vérifier l'espace libre du volume.",
+          "Si la corruption se confirme, réparer le magasin avec DISM puis sfc."
+        ],
+        "categorie": "stockage",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-WHEA-Logger",
+          "event_id": 17
+        },
+        "titre": "Erreur machine corrigée (WHEA 17)",
+        "cause": "Une erreur matérielle (souvent mémoire ou CPU) a été corrigée par le matériel. Des erreurs répétées annoncent une panne prochaine.",
+        "etapes": [
+          "Compter la fréquence de ces événements (commande ci-dessous).",
+          "Tester la RAM : Windows Memory Diagnostic (mdsched.exe) ou MemTest86.",
+          "Vérifier les températures CPU et le refroidissement.",
+          "Si récurrent : réinsérer les barrettes mémoire, tester barrette par barrette."
+        ],
+        "categorie": "materiel",
+        "commandes": [
+          {
+            "label": "Historique WHEA complet",
+            "description": "20 dernières erreurs matérielles WHEA",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-WHEA-Logger/Operational'} -MaxEvents 20 | Select-Object TimeCreated, Id, LevelDisplayName | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-WHEA-Logger",
+          "event_id": 20
+        },
+        "titre": "Erreur PCIe corrigée (WHEA 20)",
+        "cause": "Erreur corrigée sur le bus PCIe : carte graphique, SSD NVMe ou périphérique mal inséré/instable.",
+        "etapes": [
+          "Réinsérer fermement la carte GPU/NVMe concernée.",
+          "Vérifier l'alimentation de la carte (câbles PCIe).",
+          "Mettre à jour le BIOS et les pilotes de la carte.",
+          "Surveiller la fréquence : une erreur ponctuelle est tolérable, répétée = panne imminente."
+        ],
+        "categorie": "materiel",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": "Service Control Manager",
+          "event_id": 7001
+        },
+        "titre": "Service en timeout au démarrage (SCM 7001)",
+        "cause": "Un service n'a pas répondu à temps au démarrage : dépendance absente ou service trop lent.",
+        "etapes": [
+          "Identifier le service concerné dans le message de l'événement.",
+          "Vérifier ses dépendances et son compte de démarrage.",
+          "Redémarrer le service ou le passer en démarrage automatique différé."
+        ],
+        "categorie": "systeme",
+        "commandes": [
+          {
+            "label": "Services en échec ou arrêtés",
+            "description": "Services non démarrés prévus en automatique",
+            "commande": "Get-Service | Where-Object {$_.StartType -eq 'Automatic' -and $_.Status -ne 'Running'} | Select-Object Name, DisplayName, Status | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Service Control Manager",
+          "event_id": 7024
+        },
+        "titre": "Service arrêté avec un code d'erreur (SCM 7024)",
+        "cause": "Un service s'est arrêté avec un code d'erreur spécifique : configuration invalide, fichier manquant ou accès refusé.",
+        "etapes": [
+          "Noter le code d'erreur du service et le chercher dans la documentation de l'éditeur.",
+          "Consulter le journal applicatif du service concerné.",
+          "Réinstaller ou réparer l'application qui fournit le service."
+        ],
+        "categorie": "systeme",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": "Service Control Manager",
+          "event_id": 7045
+        },
+        "titre": "Nouveau service installé (SCM 7045)",
+        "cause": "Un service a été installé sur la machine. Vérifier qu'il s'agit d'une installation légitime : c'est un vecteur classique de logiciels malveillants.",
+        "etapes": [
+          "Identifier le fichier binaire du service dans le message de l'événement.",
+          "Vérifier que l'installation correspond à une action volontaire (logiciel récemment installé).",
+          "Sinon : analyser le fichier (Defender) et désinstaller le service."
+        ],
+        "categorie": "systeme",
+        "commandes": [
+          {
+            "label": "Services installés récemment",
+            "description": "Services créés dans les 7 derniers jours",
+            "commande": "Get-CimInstance Win32_Service | Where-Object {$_.InstallDate -gt (Get-Date).AddDays(-7)} | Select-Object Name, State, StartMode | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "DCOM",
+          "event_id": 10016
+        },
+        "titre": "Permission DCOM refusée (DCOM 10016)",
+        "cause": "Un composant DCOM n'a pas les permissions pour démarrer. Très fréquent et presque toujours bénin sur Windows 10/11 (bruit de journal).",
+        "etapes": [
+          "Ignorer si la machine fonctionne normalement — Microsoft le documente comme du bruit.",
+          "Si l'application concernée dysfonctionne : réinstaller l'application.",
+          "Ne pas modifier les clés de registre DCOM manuellement."
+        ],
+        "categorie": "systeme",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": "Tcpip",
+          "event_id": 4233
+        },
+        "titre": "Périphérique réseau indisponible (Tcpip 4233)",
+        "cause": "Une carte réseau configurée n'est plus disponible : adaptateur Wi-Fi/Ethernet désactivé, USB débranché ou pilote défaillant.",
+        "etapes": [
+          "Vérifier que la carte réseau est active (Paramètres > Réseau).",
+          "Réinstaller le pilote de la carte.",
+          "Si c'est un adaptateur virtuel (VPN, Hyper-V) inutilisé : le désactiver proprement."
+        ],
+        "categorie": "reseau",
+        "commandes": [
+          {
+            "label": "Cartes réseau et leur état",
+            "description": "Adaptateurs présents et statut",
+            "commande": "Get-NetAdapter | Select-Object Name, InterfaceDescription, Status, LinkSpeed | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-DNS-Client",
+          "event_id": 1014
+        },
+        "titre": "Échec de résolution DNS (DNS 1014)",
+        "cause": "Le client DNS n'a pas pu résoudre un nom de domaine : serveur DNS injoignable ou mal configuré.",
+        "etapes": [
+          "Vider le cache DNS (Maintenance > Correctifs).",
+          "Tester la résolution avec nslookup.",
+          "Vérifier la configuration DNS de la carte (8.8.8.8/1.1.1.1 en test).",
+          "Redémarrer la box/routeur si le DNS du FAI est en cause."
+        ],
+        "categorie": "reseau",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-Resource-Exhaustion-Detector",
+          "event_id": 2004
+        },
+        "titre": "Mémoire virtuelle insuffisante (2004)",
+        "cause": "Windows manque de mémoire virtuelle : trop d'applications ouvertes, fuite mémoire d'un processus ou fichier d'échange trop petit.",
+        "etapes": [
+          "Identifier le processus le plus gourmand dans le message de l'événement.",
+          "Fermer les applications lourdes inutiles.",
+          "Vérifier la taille du fichier d'échange (gestion automatique recommandée).",
+          "Envisager un ajout de RAM si récurrent."
+        ],
+        "categorie": "systeme",
+        "commandes": [
+          {
+            "label": "Top mémoire des processus",
+            "description": "10 processus les plus gourmands en RAM",
+            "commande": "Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 10 Name, @{N='RAM (Mo)';E={[math]::Round($_.WorkingSet64/1MB,0)}} | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
       }
     ],
     "Application": [
@@ -312,6 +600,130 @@
           "Mettre à jour l'application concernée."
         ],
         "categorie": "application"
+      },
+      {
+        "match": {
+          "provider": "Application Hang",
+          "event_id": 1002
+        },
+        "titre": "Application figée (Hang 1002)",
+        "cause": "Une application a cessé de répondre et a été fermée : boucle bloquante, pilote graphique ou plugin fautif.",
+        "etapes": [
+          "Identifier l'application et le module fautif dans le message.",
+          "Mettre à jour l'application et ses plugins.",
+          "Mettre à jour le pilote graphique.",
+          "Démarrer l'application sans extension/plugin pour isoler la cause."
+        ],
+        "categorie": "application",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": ".NET Runtime",
+          "event_id": 1026
+        },
+        "titre": "Application .NET plantée (.NET 1026)",
+        "cause": "Une application .NET a rencontré une exception non gérée et a planté.",
+        "etapes": [
+          "Consulter la stack trace dans le message de l'événement.",
+          "Mettre à jour l'application concernée.",
+          "Vérifier la version du runtime .NET installée."
+        ],
+        "categorie": "application",
+        "commandes": [
+          {
+            "label": "Runtimes .NET installés",
+            "description": "Versions de .NET présentes",
+            "commande": "Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\NET Framework Setup\\NDP' -Recurse | Get-ItemProperty | Select-Object PSChildName, Version | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      }
+    ],
+    "Microsoft-Windows-Diagnostics-Performance/Operational": [
+      {
+        "match": {
+          "provider": "Microsoft-Windows-Diagnostics-Performance",
+          "event_id": 100
+        },
+        "titre": "Démarrage lent (Diagnostics-Performance 100)",
+        "cause": "Windows a mesuré un démarrage plus lent que la normale : services et applications au démarrage en cause.",
+        "etapes": [
+          "Désactiver les applications au démarrage inutiles (Gestionnaire des tâches > Démarrage).",
+          "Retarder les services non critiques (automatique différé).",
+          "Vérifier la santé du disque système (un disque lent dégrade le démarrage).",
+          "Activer le démarrage rapide si compatible avec votre usage."
+        ],
+        "categorie": "demarrage",
+        "commandes": [
+          {
+            "label": "Durée des derniers démarrages",
+            "description": "Temps de boot mesuré par Windows",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Diagnostics-Performance/Operational'; Id=100} -MaxEvents 5 | Select-Object TimeCreated, @{N='Ms';E={$_.Properties[1].Value}} | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": false,
+            "confirme": false
+          }
+        ]
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-Diagnostics-Performance",
+          "event_id": 101
+        },
+        "titre": "Application ralentissant le démarrage (101)",
+        "cause": "Une application au démarrage allonge significativement le temps de boot.",
+        "etapes": [
+          "Identifier l'application dans le message de l'événement.",
+          "La désactiver au démarrage ou la retarder.",
+          "Si elle est indispensable : chercher son option « démarrage différé »."
+        ],
+        "categorie": "demarrage",
+        "commandes": []
+      },
+      {
+        "match": {
+          "provider": "Microsoft-Windows-Diagnostics-Performance",
+          "event_id": 108
+        },
+        "titre": "Service ralentissant le démarrage (108)",
+        "cause": "Un service retarde le démarrage de Windows.",
+        "etapes": [
+          "Identifier le service dans le message de l'événement.",
+          "Le passer en « Automatique (début différé) » si non critique.",
+          "Le désactiver s'il est inutile."
+        ],
+        "categorie": "demarrage",
+        "commandes": []
+      }
+    ],
+    "Security": [
+      {
+        "match": {
+          "provider": "Microsoft-Windows-Security-Auditing",
+          "event_id": 4625
+        },
+        "titre": "Échec d'ouverture de session (4625)",
+        "cause": "Une tentative de connexion a échoué : mot de passe erroné, mais aussi attaque par force brute (RDP exposé) si les échecs se répètent.",
+        "etapes": [
+          "Vérifier la fréquence et le compte visé dans le message (comptes multiples = force brute).",
+          "Si répété depuis l'extérieur : fermer le port RDP/SSH du routeur ou utiliser un VPN.",
+          "Activer le verrouillage de compte après échecs répétés.",
+          "Vérifier l'adresse source : locale (logiciel légitime mal configuré) ou distante (attaque)."
+        ],
+        "categorie": "securite",
+        "commandes": [
+          {
+            "label": "Échecs de connexion récents",
+            "description": "20 derniers échecs avec compte et source",
+            "commande": "Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} -MaxEvents 20 | Select-Object TimeCreated, @{N='Compte';E={$_.Properties[5].Value}}, @{N='Source';E={$_.Properties[19].Value}} | Format-Table -AutoSize",
+            "type": "lecture",
+            "elevation": true,
+            "confirme": false
+          }
+        ]
       }
     ]
   }

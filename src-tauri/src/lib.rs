@@ -1672,6 +1672,29 @@ mod tests_winget {
         }
     }
 
+    // Validation de la base de connaissances embarquée : chaque entrée doit
+    // être chargeable, et toutes ses commandes passer la denylist.
+    #[test]
+    fn base_de_connaissances_valide() {
+        let base = load_knowledge_base();
+        assert!(base.len() >= 35, "base trop pauvre : {}", base.len());
+        for m in base {
+            assert!(
+                !(m.provider.is_empty() && m.event_id == 0),
+                "entrée sans critère de correspondance : {:?}",
+                m.entry.titre
+            );
+            assert!(!m.entry.titre.is_empty());
+            for c in &m.entry.commandes {
+                assert!(
+                    commande_autorisee(&c.commande).is_ok(),
+                    "commande de la base refusée par la denylist : {}",
+                    c.commande
+                );
+            }
+        }
+    }
+
     #[test]
     fn id_wu_rejete_injection() {
         assert!(id_wu_valide("12345678-90ab-CDEF-1234-567890ABCDEF"));

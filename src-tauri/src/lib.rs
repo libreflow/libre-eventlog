@@ -89,6 +89,25 @@ pub struct WinUpdate {
     pub size_mb: f64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemInfo {
+    pub manufacturer: String,
+    pub model: String,
+    pub bios_version: String,
+    pub bios_date: String,
+    pub serial: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProblemDevice {
+    pub name: String,
+    pub instance_id: String,
+    pub problem_code: String,
+    pub status: String,
+}
+
 fn severity_label(level: u8) -> String {
     match level {
         1 => "Critique".to_string(),
@@ -865,6 +884,115 @@ async fn update_applications(ids: Vec<String>) -> Result<CommandResult, String> 
         .map_err(|e| format!("La mise à jour a échoué : {}", e))?
 }
 
+// ----- Matériel & BIOS (lecture seule, CIM/PnP) -----
+
+// Fabricant, modèle, version/date de BIOS et numéro de série (utile pour
+// le support constructeur : Service Tag Dell, S/N HP/Lenovo). Sur les PC
+// assemblés, le fabricant système est générique : on retombe sur la carte
+// mère. Chaque ligne : fabricant|modèle|versionBIOS|dateBIOS|série.
+const PS_SYSTEM_INFO: &str = r#"
+$ErrorActionPreference = 'Stop'
+$cs = Get-CimInstance Win32_ComputerSystem
+$bb = Get-CimInstance Win32_BaseBoard
+$bios = Get-CimInstance Win32_BIOS
+$gens = @('system manufacturer','default string','to be filled by o.e.m.','','null','not specified','not available')
+$fab = $cs.Manufacturer
+$modele = $cs.Model
+if ($gens -contains "$fab".ToLower()) { $fab = $bb.Manufacturer; $modele = $bb.Product }
+$date = ''
+try { $date = $bios.ReleaseDate.ToString('yyyy-MM-dd') } catch {}
+"{0}|{1}|{2}|{3}|{4}" -f ($fab -replace '\|',' '), ($modele -replace '\|',' '), ($bios.SMBIOSBIOSVersion -replace '\|',' '), $date, ($bios.SerialNumber -replace '\|',' ')
+"#;
+
+// Périphériques présents dont le pilote pose problème (pilote absent,
+// périphérique désactivé, échec de démarrage...). Chaque ligne :
+// nom|instanceId|codeProblème|statut.
+const PS_PROBLEM_DEVICES: &str = r#"
+Get-PnpDevice -PresentOnly | Where-Object { $_.Status -ne 'OK' } | ForEach-Object {
+  $code = (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' -ErrorAction SilentlyContinue).Data
+  "{0}|{1}|{2}|{3}" -f ($_.Name -replace '\|',' '), ($_.InstanceId -replace '\|',' '), "$code", $_.Status
+}
+"#;
+
+fn lire_systeme_info() -> Result<SystemInfo, String> {
+    let child = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PS_SYSTEM_INFO])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags_windows_no_window()
+        .spawn()
+        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let out = attendre_avec_timeout(child, 60)?;
+    if !out.status.success() {
+        return Err(format!(
+            "Lecture des informations système impossible : {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut champs = stdout.trim().splitn(5, '|');
+    Ok(SystemInfo {
+        manufacturer: champs.next().unwrap_or("").trim().to_string(),
+        model: champs.next().unwrap_or("").trim().to_string(),
+        bios_version: champs.next().unwrap_or("").trim().to_string(),
+        bios_date: champs.next().unwrap_or("").trim().to_string(),
+        serial: champs.next().unwrap_or("").trim().to_string(),
+    })
+}
+
+fn lister_peripheriques_problemes() -> Result<Vec<ProblemDevice>, String> {
+    let child = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PS_PROBLEM_DEVICES])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags_windows_no_window()
+        .spawn()
+        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let out = attendre_avec_timeout(child, 120)?;
+    if !out.status.success() {
+        return Err(format!(
+            "Énumération des périphériques impossible : {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut peripheriques = Vec::new();
+    for ligne in stdout.lines() {
+        let mut champs = ligne.splitn(4, '|');
+        let (Some(nom), Some(instance), Some(code), Some(statut)) = (
+            champs.next(),
+            champs.next(),
+            champs.next(),
+            champs.next(),
+        ) else {
+            continue;
+        };
+        peripheriques.push(ProblemDevice {
+            name: nom.to_string(),
+            instance_id: instance.to_string(),
+            problem_code: code.trim().to_string(),
+            status: statut.to_string(),
+        });
+    }
+    Ok(peripheriques)
+}
+
+#[tauri::command]
+async fn get_system_info() -> Result<SystemInfo, String> {
+    tauri::async_runtime::spawn_blocking(lire_systeme_info)
+        .await
+        .map_err(|e| format!("La lecture des informations système a échoué : {}", e))?
+}
+
+#[tauri::command]
+async fn list_problem_devices() -> Result<Vec<ProblemDevice>, String> {
+    tauri::async_runtime::spawn_blocking(lister_peripheriques_problemes)
+        .await
+        .map_err(|e| format!("L'énumération des périphériques a échoué : {}", e))?
+}
+
 // winget signale qu'une mise à jour est installée mais ne sera finalisée
 // qu'après fermeture/relance de l'application (paquets MSIX/appx exécutés
 // pendant l'installation : Terminal, Photos, etc.) ou qu'un redémarrage du
@@ -1130,6 +1258,8 @@ pub fn run() {
             update_applications,
             list_windows_updates,
             install_windows_updates,
+            get_system_info,
+            list_problem_devices,
             check_elevation
         ])
         .run(tauri::generate_context!())
@@ -1364,6 +1494,29 @@ mod tests_winget {
         assert_eq!(resoudre_timeout(Some(3600)), 3600);
         assert_eq!(resoudre_timeout(Some(0)), 1); // minimum
         assert_eq!(resoudre_timeout(Some(999_999)), 7200); // plafond
+    }
+
+    // Intégrations CIM/PnP en lecture seule sur la machine réelle.
+    #[test]
+    fn systeme_info_reel() {
+        let info = lire_systeme_info().expect("la lecture CIM doit réussir");
+        assert!(!info.manufacturer.is_empty(), "fabricant vide : {:?}", info);
+        assert!(!info.bios_version.is_empty(), "version BIOS vide : {:?}", info);
+        // date BIOS au format yyyy-MM-dd si présente
+        if !info.bios_date.is_empty() {
+            chrono::NaiveDate::parse_from_str(&info.bios_date, "%Y-%m-%d")
+                .unwrap_or_else(|_| panic!("date BIOS illisible : {}", info.bios_date));
+        }
+    }
+
+    #[test]
+    fn peripheriques_problemes_reel() {
+        let peripheriques =
+            lister_peripheriques_problemes().expect("l'énumération PnP doit réussir");
+        for p in &peripheriques {
+            assert!(!p.name.is_empty());
+            assert!(!p.instance_id.is_empty());
+        }
     }
 
     #[test]

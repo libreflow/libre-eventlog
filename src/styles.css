@@ -895,6 +895,62 @@ tr:focus-visible {
   flex-shrink: 0;
 }
 
+/* ---------- Matériel & BIOS ---------- */
+
+.hw-grille {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.hw-item {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.hw-item-large {
+  grid-column: 1 / -1;
+}
+
+.hw-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.hw-item strong {
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.hw-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.hw-probleme {
+  cursor: default;
+}
+
+.hw-code {
+  color: var(--warn);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

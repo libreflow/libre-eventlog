@@ -5,6 +5,8 @@ import type {
   CommandeFix,
   CriticalEvent,
   Diagnostic,
+  ProblemDevice,
+  SystemInfo,
   WinUpdate,
   WingetPackage,
 } from "./types";
@@ -127,6 +129,49 @@ interface TerminalEntry {
   time: string;
 }
 
+// Liens officiels des principaux fabricants (support + pilotes/BIOS).
+// Il n'existe pas d'API universelle de mise à jour BIOS : le support du
+// fabricant reste le canal officiel.
+const LIENS_FABRICANTS: { motif: string; nom: string; url: string; outil?: string }[] = [
+  { motif: "dell", nom: "Support Dell", url: "https://www.dell.com/support", outil: "Dell Command Update (winget : Dell.CommandUpdate)" },
+  { motif: "hewlett", nom: "Support HP", url: "https://support.hp.com", outil: "HP Support Assistant (winget : HP.SupportAssistant)" },
+  { motif: "hp ", nom: "Support HP", url: "https://support.hp.com", outil: "HP Support Assistant (winget : HP.SupportAssistant)" },
+  { motif: "lenovo", nom: "Support Lenovo", url: "https://pcsupport.lenovo.com", outil: "Lenovo System Update (winget : Lenovo.SystemUpdate)" },
+  { motif: "asus", nom: "Support ASUS", url: "https://www.asus.com/support/", outil: "MyASUS" },
+  { motif: "msi", nom: "Support MSI", url: "https://www.msi.com/support", outil: "MSI Center" },
+  { motif: "micro-star", nom: "Support MSI", url: "https://www.msi.com/support", outil: "MSI Center" },
+  { motif: "gigabyte", nom: "Support Gigabyte", url: "https://www.gigabyte.com/support", outil: "Gigabyte Control Center" },
+  { motif: "asrock", nom: "Support ASRock", url: "https://www.asrock.com/support/" },
+  { motif: "acer", nom: "Support Acer", url: "https://www.acer.com/support/", outil: "Care Center" },
+  { motif: "predator", nom: "Support Acer Predator", url: "https://www.acer.com/support/" },
+  { motif: "samsung", nom: "Support Samsung", url: "https://www.samsung.com/support/" },
+  { motif: "microsoft", nom: "Support Microsoft", url: "https://support.microsoft.com" },
+  { motif: "toshiba", nom: "Support Dynabook/Toshiba", url: "https://support.dynabook.com" },
+  { motif: "dynabook", nom: "Support Dynabook/Toshiba", url: "https://support.dynabook.com" },
+];
+
+function fabricantTrouve(manufacturer: string) {
+  const m = manufacturer.toLowerCase();
+  return LIENS_FABRICANTS.find((f) => m.includes(f.motif));
+}
+
+// Signification des codes de problème Gestionnaire de périphériques
+// (CM_PROBLEM) les plus fréquents.
+const CODES_PROBLEME: Record<string, string> = {
+  "1": "Périphérique mal configuré",
+  "10": "Le périphérique ne peut pas démarrer",
+  "18": "Pilotes à réinstaller",
+  "22": "Périphérique désactivé",
+  "24": "Périphérique absent ou en panne — débranchez/rebranchez",
+  "28": "Pilotes non installés",
+  "31": "Ne fonctionne pas correctement avec cette version de Windows",
+  "37": "Échec d'initialisation du pilote — réinstallation recommandée",
+  "39": "Pilote corrompu ou manquant",
+  "43": "Windows a arrêté ce périphérique (problème matériel signalé)",
+  "45": "Périphérique non connecté",
+  "52": "Windows ne peut pas vérifier la signature numérique du pilote",
+};
+
 function formatDate(iso: string): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -165,11 +210,15 @@ export default function App() {
   const [majChargement, setMajChargement] = useState(false);
   const [majPaquets, setMajPaquets] = useState<WingetPackage[]>([]);
   const [majSelection, setMajSelection] = useState<Set<string>>(new Set());
-  const [majOnglet, setMajOnglet] = useState<"apps" | "windows" | "correctifs">("apps");
+  const [majOnglet, setMajOnglet] = useState<"apps" | "windows" | "bios" | "correctifs">("apps");
   const [wuPaquets, setWuPaquets] = useState<WinUpdate[]>([]);
   const [wuSelection, setWuSelection] = useState<Set<string>>(new Set());
   const [wuChargement, setWuChargement] = useState(false);
   const [wuScanFait, setWuScanFait] = useState(false);
+  const [hwInfo, setHwInfo] = useState<SystemInfo | null>(null);
+  const [hwProblemes, setHwProblemes] = useState<ProblemDevice[]>([]);
+  const [hwChargement, setHwChargement] = useState(false);
+  const [hwCharge, setHwCharge] = useState(false);
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
@@ -409,6 +458,23 @@ export default function App() {
       // Rafraîchit la liste en arrière-plan : les mises à jour installées
       // disparaissent, celles en attente de redémarrage restent listées.
       chargerWu();
+    }
+  }
+
+  async function chargerMateriel() {
+    setHwChargement(true);
+    try {
+      const [info, problemes] = await Promise.all([
+        invoke<SystemInfo>("get_system_info"),
+        invoke<ProblemDevice[]>("list_problem_devices"),
+      ]);
+      setHwInfo(info);
+      setHwProblemes(problemes);
+      setHwCharge(true);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setHwChargement(false);
     }
   }
 
@@ -816,6 +882,7 @@ export default function App() {
                 [
                   ["apps", "Applications"],
                   ["windows", "Windows & pilotes"],
+                  ["bios", "Matériel & BIOS"],
                   ["correctifs", "Correctifs système"],
                 ] as const
               ).map(([cle, libelle]) => (
@@ -824,7 +891,10 @@ export default function App() {
                   role="tab"
                   aria-selected={majOnglet === cle}
                   className={`maj-onglet ${majOnglet === cle ? "actif" : ""}`}
-                  onClick={() => setMajOnglet(cle)}
+                  onClick={() => {
+                    setMajOnglet(cle);
+                    if (cle === "bios" && !hwCharge && !hwChargement) chargerMateriel();
+                  }}
                 >
                   {libelle}
                 </button>
@@ -952,6 +1022,116 @@ export default function App() {
                     onClick={() => executerWuInstall([...wuSelection])}
                   >
                     ⬇ Installer ({wuSelection.size})
+                  </button>
+                </div>
+              </>
+            )}
+
+            {majOnglet === "bios" && (
+              <>
+                <p className="cmd-desc">
+                  Informations matériel de cette machine et liens vers le support officiel du
+                  fabricant. Il n'existe pas d'API universelle de mise à jour BIOS : les mises à
+                  jour de firmware passent par Windows Update (onglet « Windows &amp; pilotes »)
+                  sur les machines récentes, sinon par le site ou l'outil officiel du fabricant.
+                </p>
+
+                {hwChargement && <p className="maj-status">⏳ Lecture des informations matériel…</p>}
+
+                {!hwChargement && hwInfo && (
+                  <div className="hw-grille">
+                    <div className="hw-item">
+                      <span className="hw-label">Fabricant</span>
+                      <strong>{hwInfo.manufacturer}</strong>
+                    </div>
+                    <div className="hw-item">
+                      <span className="hw-label">Modèle</span>
+                      <strong>{hwInfo.model}</strong>
+                    </div>
+                    <div className="hw-item">
+                      <span className="hw-label">Version BIOS</span>
+                      <strong className="mono">{hwInfo.biosVersion || "—"}</strong>
+                    </div>
+                    <div className="hw-item">
+                      <span className="hw-label">Date BIOS</span>
+                      <strong>{hwInfo.biosDate || "—"}</strong>
+                    </div>
+                    {hwInfo.serial && (
+                      <div className="hw-item hw-item-large">
+                        <span className="hw-label">Numéro de série / Service Tag</span>
+                        <strong className="mono">{hwInfo.serial}</strong>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!hwChargement && hwInfo && (
+                  <div className="hw-actions">
+                    {fabricantTrouve(hwInfo.manufacturer) ? (
+                      <a
+                        className="btn"
+                        href={fabricantTrouve(hwInfo.manufacturer)!.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        🔗 {fabricantTrouve(hwInfo.manufacturer)!.nom}
+                        <span className="sr-only"> (ouvre un nouvel onglet)</span>
+                      </a>
+                    ) : (
+                      <span className="maj-status">Fabricant non reconnu — utilisez la recherche ci-dessous.</span>
+                    )}
+                    <a
+                      className="btn"
+                      href={`https://www.google.com/search?q=${encodeURIComponent(
+                        `${hwInfo.manufacturer} ${hwInfo.model} BIOS update drivers`,
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      🔍 Rechercher mises à jour BIOS/pilotes
+                      <span className="sr-only"> (ouvre un nouvel onglet)</span>
+                    </a>
+                    <button className="btn" onClick={chargerMateriel} disabled={hwChargement}>
+                      🔄 Actualiser
+                    </button>
+                  </div>
+                )}
+
+                {!hwChargement && hwInfo && fabricantTrouve(hwInfo.manufacturer)?.outil && (
+                  <p className="cmd-desc">
+                    💡 Outil officiel du fabricant (mises à jour pilotes + BIOS) :{" "}
+                    {fabricantTrouve(hwInfo.manufacturer)!.outil}. Il est installable depuis
+                    l'onglet Applications s'il est disponible via winget.
+                  </p>
+                )}
+
+                {!hwChargement && hwCharge && (
+                  <div className="maj-liste" role="group" aria-label="Périphériques en erreur">
+                    <div className="maj-item maj-tous">
+                      <strong>
+                        Périphériques avec un problème de pilote ({hwProblemes.length})
+                      </strong>
+                    </div>
+                    {hwProblemes.length === 0 && (
+                      <p className="maj-status">✅ Tous les périphériques ont un pilote en état de marche.</p>
+                    )}
+                    {hwProblemes.map((p) => (
+                      <div key={p.instanceId} className="maj-item hw-probleme">
+                        <span className="maj-nom" title={p.instanceId}>
+                          {p.name}
+                        </span>
+                        <span className="hw-code">
+                          code {p.problemCode || "?"}
+                          {CODES_PROBLEME[p.problemCode] ? ` — ${CODES_PROBLEME[p.problemCode]}` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="modal-actions">
+                  <button className="btn" onClick={() => setMajOuverte(false)}>
+                    Fermer
                   </button>
                 </div>
               </>

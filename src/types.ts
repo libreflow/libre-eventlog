@@ -53,3 +53,18 @@ export interface WinUpdate {
   kind: string;
   sizeMb: number;
 }
+
+export interface SystemInfo {
+  manufacturer: string;
+  model: string;
+  biosVersion: string;
+  biosDate: string;
+  serial: string;
+}
+
+export interface ProblemDevice {
+  name: string;
+  instanceId: string;
+  problemCode: string;
+  status: string;
+}

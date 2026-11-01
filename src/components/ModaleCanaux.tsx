@@ -3,7 +3,7 @@ import { CheckCircle2, Plus, Radio, X } from "lucide-react";
 import { usePiegeFocus } from "../hooks/usePiegeFocus";
 
 // Canaux utiles pré-proposés (noms réels vérifiés par wevtutil el).
-export const CANAUX_PREDEFINIS: { canal: string; description: string }[] = [
+const CANAUX_PREDEFINIS: { canal: string; description: string }[] = [
   {
     canal: "Microsoft-Windows-Windows Defender/Operational",
     description: "Menaces détectées, analyses antivirus",

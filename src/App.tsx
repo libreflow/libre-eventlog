@@ -31,7 +31,6 @@ import { TableEvenements } from "./components/TableEvenements";
 import { VueProblemes } from "./components/VueProblemes";
 import { ModaleCanaux } from "./components/ModaleCanaux";
 import { PanneauDetail } from "./components/PanneauDetail";
-import { usePiegeFocus } from "./hooks/usePiegeFocus";
 import { useTheme } from "./hooks/useTheme";
 import { useCommandes } from "./hooks/useCommandes";
 import { useCollecte } from "./hooks/useCollecte";
@@ -145,15 +144,7 @@ export default function App() {
   const { theme, basculerTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLElement>(null);
-  const majModalRef = useRef<HTMLDivElement>(null);
-  const confirmModalRef = useRef<HTMLDivElement>(null);
-  const auditModalRef = useRef<HTMLDivElement>(null);
-
   // Piège de focus actif pour chaque modale ouverte.
-  usePiegeFocus(majModalRef, majOuverte);
-  usePiegeFocus(confirmModalRef, !!confirmCmd);
-  usePiegeFocus(auditModalRef, auditOuverte);
-
   useEffect(() => {
     invoke<boolean>("check_elevation")
       .then(setElevated)

@@ -1783,14 +1783,13 @@ input {
   white-space: nowrap;
 }
 
-.params-table summary {
+.detail summary {
   cursor: pointer;
   color: var(--muted);
   font-size: var(--text-sm);
   padding: 4px 0;
 }
 
-.params-table details pre,
 .detail details pre {
   margin-top: 6px;
 }

@@ -21,6 +21,7 @@ export function telechargerCsv(evenements: CriticalEvent[]) {
     "severite",
     "machine",
     "pid",
+    "tid",
     "enregistrement",
     "message_brut",
   ];
@@ -36,6 +37,7 @@ export function telechargerCsv(evenements: CriticalEvent[]) {
         e.severity,
         e.computer ?? "",
         e.processId != null ? String(e.processId) : "",
+        e.threadId != null ? String(e.threadId) : "",
         e.recordId != null ? String(e.recordId) : "",
         e.messageRaw ?? "",
       ]

@@ -17,6 +17,7 @@ function ligneCsv(e: Partial<CriticalEvent>): string {
     e.severity ?? "",
     e.computer ?? "",
     e.processId != null ? String(e.processId) : "",
+    e.threadId != null ? String(e.threadId) : "",
     e.recordId != null ? String(e.recordId) : "",
     e.messageRaw ?? "",
   ]
@@ -26,7 +27,7 @@ function ligneCsv(e: Partial<CriticalEvent>): string {
 
 describe("ligneCsv", () => {
   it("quote chaque champ, même vide", () => {
-    expect(ligneCsv({})).toBe('"";"";"";"";"";"";"";"";"";""');
+    expect(ligneCsv({})).toBe('"";"";"";"";"";"";"";"";"";"";""');
   });
 
   it("double les guillemets dans le message brut (injection CSV impossible)", () => {

@@ -1,7 +1,7 @@
 {
   "name": "libre-eventlog",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Lecteur d'événements Windows critiques avec correctifs suggérés",
   "type": "module",
   "scripts": {

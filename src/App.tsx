@@ -248,6 +248,16 @@ export default function App() {
   const [auditChargement, setAuditChargement] = useState(false);
   const [audit, setAudit] = useState<AuditSante | null>(null);
   const [planAction, setPlanAction] = useState<Record<string, boolean>>({});
+  const [autoRefresh, setAutoRefresh] = useState("0");
+  const [theme, setTheme] = useState<string>(() => {
+    try {
+      return localStorage.getItem("libre-eventlog-theme") ?? "sombre";
+    } catch {
+      return "sombre";
+    }
+  });
+  const searchRef = useRef<HTMLInputElement>(null);
+  const chargerRef = useRef<() => void>(() => {});
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
@@ -257,6 +267,45 @@ export default function App() {
       .then(setElevated)
       .catch(() => setElevated(false));
   }, []);
+
+  // Toujours à jour pour les raccourcis clavier et l'auto-refresh.
+  chargerRef.current = charger;
+
+  // Raccourcis clavier : F5 analyser, Ctrl+F recherche, Ctrl+T terminal.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "F5") {
+        ev.preventDefault();
+        chargerRef.current();
+      } else if (ev.ctrlKey && ev.key.toLowerCase() === "f") {
+        ev.preventDefault();
+        searchRef.current?.focus();
+      } else if (ev.ctrlKey && ev.key.toLowerCase() === "t") {
+        ev.preventDefault();
+        setTerminalOuvert((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Auto-rafraîchissement de la collecte.
+  useEffect(() => {
+    if (autoRefresh === "0") return;
+    const minutes = Number(autoRefresh);
+    const timer = setInterval(() => chargerRef.current(), minutes * 60_000);
+    return () => clearInterval(timer);
+  }, [autoRefresh]);
+
+  // Thème clair/sombre persistant.
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem("libre-eventlog-theme", theme);
+    } catch {
+      /* persistance indisponible */
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (!confirmCmd && !majOuverte) return;
@@ -697,6 +746,13 @@ export default function App() {
               {relanceEnCours ? "⏳…" : "🔐 Relancer en administrateur"}
             </button>
           )}
+          <button
+            className="btn small"
+            onClick={() => setTheme((t) => (t === "sombre" ? "clair" : "sombre"))}
+            title="Basculer le thème clair/sombre"
+          >
+            {theme === "sombre" ? "☀️ Clair" : "🌙 Sombre"}
+          </button>
           <span className="stat critique">
             <strong>{nbCritiques}</strong> critique{nbCritiques > 1 ? "s" : ""}
           </span>
@@ -779,10 +835,22 @@ export default function App() {
           <option value="200">200 / canal</option>
           <option value="500">500 / canal</option>
         </select>
+        <select
+          value={autoRefresh}
+          onChange={(e) => setAutoRefresh(e.target.value)}
+          aria-label="Rafraîchissement automatique"
+          title="Re-collecte les événements périodiquement"
+        >
+          <option value="0">Auto-refresh : off</option>
+          <option value="5">5 min</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+        </select>
         <div className="search">
           <span className="search-icon" aria-hidden="true">🔍</span>
           <input
             type="search"
+            ref={searchRef}
             placeholder="Rechercher (provider, ID, message)…"
             value={recherche}
             onChange={(e) => setRecherche(e.target.value)}

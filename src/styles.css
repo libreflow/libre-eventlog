@@ -14,6 +14,25 @@
   --ok: #27c93f;
   --radius: 10px;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Thème clair : les composants reposent sur les variables ci-dessus,
+   il suffit de les redéfinir. */
+:root[data-theme="clair"] {
+  --bg: #f2f4f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f7;
+  --surface-3: #e2e7f0;
+  --border: #c9d2e0;
+  --border-soft: #d6dde8;
+  --text: #1b2333;
+  --muted: #5b6678;
+  --accent: #2f6fe4;
+  --accent-soft: rgba(47, 111, 228, 0.1);
+  --danger: #d93636;
+  --warn: #b8860b;
+  --ok: #1e9e3e;
+  --shadow: 0 8px 24px rgba(30, 40, 60, 0.12);
   --ring: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent);
 }
 

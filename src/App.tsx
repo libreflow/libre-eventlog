@@ -602,7 +602,12 @@ export default function App() {
     } catch (e) {
       if (collecteSeq.current !== seq) return;
       setError(String(e));
+      // Cohérence de l'écran d'erreur : la table est vidée, le panneau
+      // détail et les bandeaux ne doivent pas montrer un état fantôme.
       setEvents([]);
+      setAvertissements([]);
+      setSelected(null);
+      setDiagnostic(null);
     } finally {
       if (collecteSeq.current === seq) setLoading(false);
     }

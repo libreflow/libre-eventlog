@@ -60,6 +60,9 @@ export default function App() {
     canauxDisponibles,
     canal,
     setCanal,
+    providersDisponibles,
+    provider,
+    setProvider,
     severite,
     setSeverite,
     recherche,
@@ -525,6 +528,15 @@ export default function App() {
           ))}
         </select>
         <select
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+          aria-label="Filtrer par source"
+        >
+          {providersDisponibles.map((p) => (
+            <option key={p}>{p}</option>
+          ))}
+        </select>
+        <select
           value={severite}
           onChange={(e) => setSeverite(e.target.value)}
           aria-label="Filtrer par sévérité"
@@ -647,6 +659,7 @@ export default function App() {
           runningCmd={runningCmd}
           onDemanderExecution={demanderExecution}
           detailRef={detailRef}
+          onFiltreProvider={(p) => setProvider(p)}
         />
       </div>
 

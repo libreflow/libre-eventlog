@@ -23,6 +23,7 @@ export function useCollecte() {
   const [limite, setLimite] = useState<string>("50");
   const [inclureAvert, setInclureAvert] = useState(false);
   const [canal, setCanal] = useState<string>("Tous");
+  const [provider, setProvider] = useState<string>("Tous");
   const [severite, setSeverite] = useState<string>("Toutes");
   const [recherche, setRecherche] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("timestamp");
@@ -118,6 +119,14 @@ export function useCollecte() {
     [events],
   );
 
+  // Sources disponibles, triées par fréquence (les plus bruyantes d'abord),
+  // avec leur compte d'événements pour l'option.
+  const providersDisponibles = useMemo(() => {
+    const comptes = new Map<string, number>();
+    for (const e of events) comptes.set(e.provider, (comptes.get(e.provider) ?? 0) + 1);
+    return ["Tous", ...[...comptes.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p)];
+  }, [events]);
+
   // Si le canal filtré n'existe plus dans la nouvelle collecte (ex. Security
   // collecté une fois en administrateur puis application relancée non
   // élevée), le filtre ne correspondrait plus à rien : retour à « Tous ».
@@ -127,10 +136,19 @@ export function useCollecte() {
     }
   }, [canauxDisponibles, canal]);
 
+  // Même auto-reset que pour le canal si la source filtrée disparaît de
+  // la nouvelle collecte.
+  useEffect(() => {
+    if (provider !== "Tous" && !providersDisponibles.includes(provider)) {
+      setProvider("Tous");
+    }
+  }, [providersDisponibles, provider]);
+
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase();
     const liste = events.filter((e) => {
       if (canal !== "Tous" && e.canal !== canal) return false;
+      if (provider !== "Tous" && e.provider !== provider) return false;
       if (severite !== "Toutes" && e.severity !== severite) return false;
       if (
         q &&
@@ -148,7 +166,7 @@ export function useCollecte() {
       if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
       return String(va).localeCompare(String(vb), "fr") * dir;
     });
-  }, [events, canal, severite, recherche, sortKey, sortDir]);
+  }, [events, canal, provider, severite, recherche, sortKey, sortDir]);
 
   function trier(key: SortKey) {
     if (sortKey === key) {
@@ -176,6 +194,9 @@ export function useCollecte() {
     canauxDisponibles,
     canal,
     setCanal,
+    providersDisponibles,
+    provider,
+    setProvider,
     severite,
     setSeverite,
     recherche,

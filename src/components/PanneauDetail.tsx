@@ -1,4 +1,4 @@
-import { ExternalLink, FileSearch, Loader2, Lock, Play, Search, AlertTriangle } from "lucide-react";
+import { ExternalLink, FileSearch, Filter, Loader2, Lock, Play, Search, AlertTriangle } from "lucide-react";
 import type { CriticalEvent, Diagnostic } from "../types";
 import { LienExterne } from "./LienExterne";
 import { formatDate, lienRecherche, severityClass } from "../lib/evenements";
@@ -15,6 +15,7 @@ export function PanneauDetail({
   runningCmd,
   onDemanderExecution,
   detailRef,
+  onFiltreProvider,
 }: {
   selected: CriticalEvent | null;
   diagnostic: Diagnostic | null;
@@ -23,6 +24,7 @@ export function PanneauDetail({
   runningCmd: string | null;
   onDemanderExecution: (cmd: import("../types").CommandeFix) => void;
   detailRef: React.RefObject<HTMLElement | null>;
+  onFiltreProvider: (provider: string) => void;
 }) {
   return (
     <aside className="detail" aria-live="polite" aria-busy={diagLoading} ref={detailRef}>
@@ -40,6 +42,14 @@ export function PanneauDetail({
             <div className="detail-tete-titre">
               <h2>
                 {selected.provider} <span className="mono">— {selected.eventId}</span>
+                <button
+                  className="btn small"
+                  onClick={() => onFiltreProvider(selected.provider)}
+                  title="Filtrer la liste des événements sur cette source"
+                >
+                  <Filter className="icon" aria-hidden="true" />
+                  <span className="sr-only">Filtrer sur cette source</span>
+                </button>
               </h2>
               <span className={`badge ${severityClass(selected)}`}>
                 <span className="badge-point" aria-hidden="true" />

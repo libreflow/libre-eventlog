@@ -692,6 +692,36 @@ fn attendre_avec_timeout(
     })
 }
 
+// Force la sortie de powershell.exe en UTF-8 : redirigé (sans console),
+// PowerShell encode son texte dans le code page OEM (CP850 en français).
+// Les accents (« Mise à jour », « Réussi »…) devenaient alors des
+// caractères de remplacement après String::from_utf8_lossy.
+const PS_UTF8: &str = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;";
+
+// Lance PowerShell avec les options durcies (-NoProfile, -NonInteractive,
+// CREATE_NO_WINDOW, stdin fermé) et la sortie forcée en UTF-8.
+// `extra_args` est passé au script via $args (installation WU).
+fn spawn_powershell(script: &str, extra_args: &[String]) -> Result<std::process::Child, String> {
+    let commande = format!("{PS_UTF8}{script}");
+    let mut args: Vec<String> = vec![
+        "-NoProfile".into(),
+        "-NonInteractive".into(),
+        "-ExecutionPolicy".into(),
+        "Bypass".into(),
+        "-Command".into(),
+        commande,
+    ];
+    args.extend(extra_args.iter().cloned());
+    Command::new("powershell.exe")
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags_windows_no_window()
+        .spawn()
+        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))
+}
+
 #[tauri::command]
 async fn run_diagnostic_command(
     commande: String,
@@ -727,21 +757,7 @@ fn executer_commande_ps(
     // PowerShell : -NoProfile évite les scripts de profil, -NonInteractive
     // empêche toute invite bloquante, et CREATE_NO_WINDOW garantit qu'aucune
     // fenêtre console n'apparaît : tout est capturé et renvoyé à l'UI.
-    let child = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &commande,
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags_windows_no_window()
-        .spawn()
-        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let child = spawn_powershell(&commande, &[])?;
 
     let output = attendre_avec_timeout(child, timeout)?;
 
@@ -911,21 +927,7 @@ fn parse_wu_scan(stdout: &str) -> Vec<WinUpdate> {
 }
 
 fn recenser_mises_a_jour_windows() -> Result<Vec<WinUpdate>, String> {
-    let child = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            PS_WU_SCAN,
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags_windows_no_window()
-        .spawn()
-        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let child = spawn_powershell(PS_WU_SCAN, &[])?;
     let out = attendre_avec_timeout(child, WU_SCAN_TIMEOUT_SECONDES)?;
     if !out.status.success() {
         return Err(format!(
@@ -990,24 +992,10 @@ fn installer_mises_a_jour_windows(update_ids: Vec<String>) -> Result<CommandResu
     let elevated = is_elevated();
     let start = Instant::now();
 
-    let mut args: Vec<String> = vec![
-        "-NoProfile".into(),
-        "-NonInteractive".into(),
-        "-ExecutionPolicy".into(),
-        "Bypass".into(),
-        "-Command".into(),
-        PS_WU_INSTALL.into(),
-    ];
+    let mut args: Vec<String> = Vec::new();
     args.extend(update_ids);
 
-    let child = Command::new("powershell.exe")
-        .args(&args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags_windows_no_window()
-        .spawn()
-        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let child = spawn_powershell(PS_WU_INSTALL, &args)?;
 
     let out = attendre_avec_timeout(child, WU_INSTALL_TIMEOUT_SECONDES)?;
 
@@ -1269,14 +1257,7 @@ async fn get_health_audit() -> Result<AuditSante, String> {
 }
 
 fn lire_systeme_info() -> Result<SystemInfo, String> {
-    let child = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PS_SYSTEM_INFO])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags_windows_no_window()
-        .spawn()
-        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let child = spawn_powershell(PS_SYSTEM_INFO, &[])?;
     let out = attendre_avec_timeout(child, 60)?;
     if !out.status.success() {
         return Err(format!(
@@ -1296,14 +1277,7 @@ fn lire_systeme_info() -> Result<SystemInfo, String> {
 }
 
 fn lister_peripheriques_problemes() -> Result<Vec<ProblemDevice>, String> {
-    let child = Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PS_PROBLEM_DEVICES])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags_windows_no_window()
-        .spawn()
-        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let child = spawn_powershell(PS_PROBLEM_DEVICES, &[])?;
     let out = attendre_avec_timeout(child, 120)?;
     if !out.status.success() {
         return Err(format!(
@@ -1471,21 +1445,7 @@ fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, String> {
 
     // 3) Détection des résidus d'anciennes versions (lecture seule).
     rapport.push_str("\r\n=== Residus d'anciennes versions ===\r\n");
-    let child = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            PS_SCAN_RESIDUS,
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags_windows_no_window()
-        .spawn()
-        .map_err(|e| format!("Impossible de lancer PowerShell : {}", e))?;
+    let child = spawn_powershell(PS_SCAN_RESIDUS, &[])?;
     match attendre_avec_timeout(child, 60) {
         Ok(out) => {
             rapport.push_str(&String::from_utf8_lossy(&out.stdout));
@@ -1799,6 +1759,22 @@ mod tests {
         assert_eq!(taille_lisible(512), "512 o");
         assert_eq!(taille_lisible(2048), "2.0 Ko");
         assert_eq!(taille_lisible(5 * 1024 * 1024), "5.0 Mo");
+    }
+
+    // Régression : redirigé, PowerShell émet en code page OEM (CP850) —
+    // les accents deviendraient des U+FFFD après from_utf8_lossy. Le
+    // préfixe UTF-8 de spawn_powershell doit les préserver.
+    #[test]
+    fn sortie_powershell_utf8_preserve_les_accents() {
+        let child = spawn_powershell("Write-Output 'Téléchargement à é'", &[])
+            .expect("powershell doit se lancer");
+        let out = attendre_avec_timeout(child, 30).expect("la commande doit aboutir");
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        assert!(
+            stdout.contains("Téléchargement à é"),
+            "accents corrompus : {:?}",
+            stdout
+        );
     }
 
     // Régression : une commande produisant plus que le buffer du pipe (~4 Ko)

@@ -202,7 +202,7 @@
           "event_id": 7031,
           "provider": "Service Control Manager"
         },
-        "title": "Service terminé de manière inattendue",
+        "titre": "Service terminé de manière inattendue",
         "cause": "Un service s'est arrêté de façon inattendue, souvent un crash du processus ou une fuite mémoire.",
         "etapes": [
           "Consulter le nom du service dans le message de l'événement.",

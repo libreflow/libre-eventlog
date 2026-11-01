@@ -164,7 +164,7 @@ pub fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
     let mut thread_id: Option<u32> = None;
     let mut computer = String::new();
     let mut record_id: u64 = 0;
-    let mut event_data: Option<serde_json::Map<String, serde_json::Value>> = None;
+    let mut event_data: Option<Vec<(String, String)>> = None;
     let mut pending_data_name: Option<String> = None;
     let mut cur_elem = String::new();
 
@@ -197,7 +197,7 @@ pub fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                         thread_id = attr_value(&e, "ThreadID").and_then(|v| v.parse().ok());
                     }
                     "EventData" => {
-                        event_data = Some(serde_json::Map::new());
+                        event_data = Some(Vec::new());
                     }
                     "Data" => {
                         let idx = event_data.as_ref().map(|m| m.len()).unwrap_or(0);
@@ -226,10 +226,10 @@ pub fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                         thread_id = attr_value(&e, "ThreadID").and_then(|v| v.parse().ok());
                     }
                     "Data" => {
-                        if let Some(map) = event_data.as_mut() {
+                        if let Some(paires) = event_data.as_mut() {
                             let key = attr_value(&e, "Name")
-                                .unwrap_or_else(|| format!("Data {}", map.len()));
-                            map.insert(key, serde_json::Value::String(String::new()));
+                                .unwrap_or_else(|| format!("Data {}", paires.len()));
+                            paires.push((key, String::new()));
                         }
                     }
                     _ => {}
@@ -243,10 +243,10 @@ pub fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                     "Computer" => computer = txt,
                     "EventRecordID" => record_id = txt.parse().unwrap_or(0),
                     "Data" => {
-                        if let (Some(map), Some(name)) =
+                        if let (Some(paires), Some(name)) =
                             (event_data.as_mut(), pending_data_name.take())
                         {
-                            map.insert(name, serde_json::Value::String(txt));
+                            paires.push((name, txt));
                         }
                     }
                     _ => {}
@@ -255,9 +255,30 @@ pub fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
             Ok(Event::End(e)) => {
                 if e.name().as_ref() == "Event" {
                     if level <= 3 {
+                        // JSON brut (support/copie) reconstruit depuis les
+                        // paires ordonnées ; parametres transporte la
+                        // structure lisible côté UI.
                         let message_raw = event_data
                             .as_ref()
-                            .map(|m| serde_json::to_string_pretty(m).unwrap_or_default())
+                            .map(|paires| {
+                                let map: serde_json::Map<String, serde_json::Value> = paires
+                                    .iter()
+                                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                                    .collect();
+                                serde_json::to_string_pretty(&map).unwrap_or_default()
+                            })
+                            .unwrap_or_default();
+                        let parametres = event_data
+                            .as_ref()
+                            .map(|paires| {
+                                paires
+                                    .iter()
+                                    .map(|(nom, valeur)| ParametreEvenement {
+                                        nom: nom.clone(),
+                                        valeur: valeur.clone(),
+                                    })
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         events.push(CriticalEvent {
                             timestamp: timestamp.clone(),
@@ -267,6 +288,7 @@ pub fn parse_wevtutil_xml(stdout: &str, canal: &str) -> Vec<CriticalEvent> {
                             level,
                             severity: severity_label(level),
                             message_raw,
+                            parametres,
                             process_id,
                             thread_id,
                             computer: computer.clone(),

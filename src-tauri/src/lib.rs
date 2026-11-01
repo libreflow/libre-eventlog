@@ -83,6 +83,7 @@ mod tests {
             level: 2,
             severity: "Erreur".into(),
             message_raw: "m".into(),
+            parametres: vec![],
             process_id: None,
             thread_id: None,
             computer: "PC".into(),
@@ -97,6 +98,7 @@ mod tests {
                 "eventId",
                 "level",
                 "messageRaw",
+                "parametres",
                 "processId",
                 "provider",
                 "recordId",
@@ -346,7 +348,8 @@ mod tests {
     // production et vérifie que le parsing aboutit.
     #[test]
     fn wevtutil_reel_system() {
-        let events = query_canal("System", 50, false, None).expect("la requête wevtutil doit réussir");
+        let events =
+            query_canal("System", 50, false, None).expect("la requête wevtutil doit réussir");
         for e in &events {
             assert_eq!(e.canal, "System");
             assert!(

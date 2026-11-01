@@ -1745,3 +1745,48 @@ input {
 .term-entry.running {
   border-left-color: var(--accent);
 }
+
+/* ---------- Paramètres structurés de l'événement (panneau détail) ---------- */
+
+.params-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.params-table th,
+.params-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.params-table tr:last-child th,
+.params-table tr:last-child td {
+  border-bottom: none;
+}
+
+.params-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.params-table summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  padding: 4px 0;
+}
+
+.params-table details pre,
+.detail details pre {
+  margin-top: 6px;
+}

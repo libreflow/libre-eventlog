@@ -10,6 +10,11 @@ pub struct CriticalEvent {
     pub level: u8,
     pub severity: String,
     pub message_raw: String,
+    /// Données structurées de l'événement (éléments <Data> de l'EventData),
+    /// dans l'ordre du document : affichage lisible clé/valeur dans le
+    /// panneau détail, le JSON brut (messageRaw) reste pour le support.
+    #[serde(default)]
+    pub parametres: Vec<ParametreEvenement>,
     #[serde(default)]
     pub process_id: Option<u32>,
     #[serde(default)]
@@ -18,6 +23,13 @@ pub struct CriticalEvent {
     pub computer: String,
     #[serde(default)]
     pub record_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParametreEvenement {
+    pub nom: String,
+    pub valeur: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

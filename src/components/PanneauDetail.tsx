@@ -69,9 +69,32 @@ export function PanneauDetail({
             </div>
           </div>
 
+          {selected.parametres.length > 0 && (
+            <div className="section">
+              <h3>Paramètres</h3>
+              <table className="params-table">
+                <tbody>
+                  {selected.parametres.map((p) => (
+                    <tr key={p.nom}>
+                      <th scope="row">{p.nom}</th>
+                      <td className="mono">{p.valeur}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           <div className="section">
             <h3>Message brut</h3>
-            <pre>{selected.messageRaw || "Aucun message."}</pre>
+            {selected.parametres.length > 0 ? (
+              <details>
+                <summary>Données brutes (JSON, pour le support)</summary>
+                <pre>{selected.messageRaw || "Aucun message."}</pre>
+              </details>
+            ) : (
+              <pre>{selected.messageRaw || "Aucun message."}</pre>
+            )}
           </div>
 
           <div className="section">

@@ -6,6 +6,8 @@ export interface CriticalEvent {
   level: number;
   severity: string;
   messageRaw: string;
+  /** Données structurées de l'événement, dans l'ordre du document. */
+  parametres: { nom: string; valeur: string }[];
   processId?: number | null;
   threadId?: number | null;
   computer?: string;

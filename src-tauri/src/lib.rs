@@ -71,6 +71,15 @@ pub struct CommandResult {
     pub elevated: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WingetPackage {
+    pub name: String,
+    pub id: String,
+    pub version: String,
+    pub available: String,
+}
+
 fn severity_label(level: u8) -> String {
     match level {
         1 => "Critique".to_string(),
@@ -451,6 +460,107 @@ fn executer_commande_ps(commande: String) -> Result<CommandResult, String> {
 
 const WINGET_TIMEOUT_SECONDES: u64 = 600;
 
+// winget 1.x n'a pas de sortie JSON pour `upgrade` : on découpe la table
+// texte en utilisant les positions (en caractères) des colonnes de l'en-tête.
+// winget aligne visuellement les colonnes sur un compte de caractères, d'où
+// le découpage par indices de chars plutôt que d'octets.
+fn parse_winget_upgrade_table(stdout: &str) -> Vec<WingetPackage> {
+    let lignes: Vec<Vec<char>> = stdout.lines().map(|l| l.chars().collect()).collect();
+
+    // L'en-tête précède la ligne de tirets de séparation.
+    let mut idx_entete = None;
+    for (i, ligne) in lignes.iter().enumerate().skip(1) {
+        if ligne.len() > 10 && ligne.iter().take(4).all(|c| *c == '-') {
+            idx_entete = Some(i - 1);
+            break;
+        }
+    }
+    let Some(h) = idx_entete else {
+        return Vec::new();
+    };
+
+    // Positions de début des colonnes Nom, ID, Version, Disponible.
+    let entete: String = lignes[h].iter().collect();
+    let mut positions = Vec::new();
+    let mut dans_mot = false;
+    for (i, c) in entete.chars().enumerate() {
+        if c.is_whitespace() {
+            dans_mot = false;
+        } else if !dans_mot {
+            dans_mot = true;
+            positions.push(i);
+        }
+    }
+    if positions.len() < 4 {
+        return Vec::new();
+    }
+    let (nom_p, id_p, ver_p, disp_p) = (positions[0], positions[1], positions[2], positions[3]);
+
+    let mut paquets = Vec::new();
+    for ligne in lignes.iter().skip(h + 2) {
+        // Les lignes de résumé (« N mises à niveau disponibles. ») sont plus
+        // courtes que la colonne « Disponible » : elles sont écartées ici.
+        if ligne.len() <= disp_p {
+            continue;
+        }
+        let tranche = |debut: usize, fin: usize| -> String {
+            let fin = fin.min(ligne.len());
+            if debut >= fin {
+                return String::new();
+            }
+            ligne[debut..fin]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .to_string()
+        };
+
+        let id = tranche(id_p, ver_p);
+        // La tranche « Disponible » va jusqu'au bout de ligne et inclut
+        // parfois la colonne « Source » collée : on ne garde que le 1er mot.
+        let available = tranche(disp_p, usize::MAX)
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string();
+        if id.is_empty() || available.is_empty() {
+            continue;
+        }
+        paquets.push(WingetPackage {
+            name: tranche(nom_p, id_p),
+            id,
+            version: tranche(ver_p, disp_p),
+            available,
+        });
+    }
+    paquets
+}
+
+fn recenser_mises_a_jour() -> Result<Vec<WingetPackage>, String> {
+    let child = spawn_winget(&[
+        "upgrade",
+        "--include-unknown",
+        "--accept-source-agreements",
+        "--disable-interactivity",
+    ])?;
+    let out = attendre_avec_timeout(child, 120)?;
+    let paquets = parse_winget_upgrade_table(&String::from_utf8_lossy(&out.stdout));
+    if paquets.is_empty() && !out.status.success() {
+        return Err(format!(
+            "Impossible de lister les mises à jour : {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(paquets)
+}
+
+#[tauri::command]
+async fn list_available_updates() -> Result<Vec<WingetPackage>, String> {
+    tauri::async_runtime::spawn_blocking(recenser_mises_a_jour)
+        .await
+        .map_err(|e| format!("Le recensement des mises à jour a échoué : {}", e))?
+}
+
 fn spawn_winget(args: &[&str]) -> Result<std::process::Child, String> {
     let essai = |exe: &str| -> Result<std::process::Child, String> {
         Command::new(exe)
@@ -553,54 +663,66 @@ if ($dups) {
 "#;
 
 #[tauri::command]
-async fn update_applications() -> Result<CommandResult, String> {
-    tauri::async_runtime::spawn_blocking(mise_a_jour_applications)
+async fn update_applications(ids: Vec<String>) -> Result<CommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || mise_a_jour_applications(ids))
         .await
         .map_err(|e| format!("La mise à jour a échoué : {}", e))?
 }
 
-fn mise_a_jour_applications() -> Result<CommandResult, String> {
+fn mise_a_jour_applications(ids: Vec<String>) -> Result<CommandResult, String> {
     let elevated = is_elevated();
     let start = Instant::now();
     let mut rapport = String::new();
     let mut stderr_all = String::new();
-    let exit_code: Option<i32>;
+    let mut echecs = 0usize;
 
-    // 1) Mise à jour de toutes les applications installées via winget.
-    let child = spawn_winget(&[
-        "upgrade",
-        "--all",
-        "--silent",
-        "--accept-package-agreements",
-        "--accept-source-agreements",
-        "--disable-interactivity",
-    ])?;
-    match attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES) {
-        Ok(out) => {
-            exit_code = out.status.code();
-            rapport.push_str(&String::from_utf8_lossy(&out.stdout));
-            stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));
-        }
-        Err(e) => {
-            // Sans cela, le code de sortie du scan de résidus (0) serait
-            // adopté plus bas et l'UI afficherait un faux « succès ».
-            exit_code = Some(1);
-            stderr_all.push_str(&e);
-            rapport.push_str(
-                "\r\nLa mise à jour a été interrompue (délai dépassé). \
-                 Les étapes de nettoyage continuent ci-dessous.\r\n",
-            );
+    // 1) Mise à jour de chaque application sélectionnée (par ID exact).
+    if !ids.is_empty() {
+        rapport.push_str("=== Mises à jour des applications ===\r\n");
+    }
+    for id in &ids {
+        rapport.push_str(&format!("\r\n— {id} —\r\n"));
+        let child = match spawn_winget(&[
+            "upgrade",
+            "--id",
+            id,
+            "--exact",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+            "--disable-interactivity",
+        ]) {
+            Ok(c) => c,
+            Err(e) => {
+                echecs += 1;
+                stderr_all.push_str(&format!("{id} : {e}\r\n"));
+                continue;
+            }
+        };
+        match attendre_avec_timeout(child, WINGET_TIMEOUT_SECONDES) {
+            Ok(out) => {
+                rapport.push_str(&String::from_utf8_lossy(&out.stdout));
+                stderr_all.push_str(&String::from_utf8_lossy(&out.stderr));
+                if let Some(code) = out.status.code() {
+                    if code != 0 {
+                        echecs += 1;
+                        rapport.push_str(&format!("\r\n(code de sortie {code})\r\n"));
+                    }
+                }
+            }
+            Err(e) => {
+                echecs += 1;
+                stderr_all.push_str(&format!("{id} : {e}\r\n"));
+                rapport.push_str(&format!("\r\n{e}\r\n"));
+            }
         }
     }
 
-    if let Some(code) = exit_code {
-        if code != 0 {
-            rapport.push_str(&format!(
-                "\r\nNote : winget a retourné le code {code} — souvent \
-                 « aucune mise à jour applicable » ou des échecs ponctuels \
-                 sur certains paquets ; le détail est dans la sortie/stderr.\r\n"
-            ));
-        }
+    if echecs > 0 {
+        rapport.push_str(&format!(
+            "\r\nNote : {echecs} mise(s) à jour en échec — le détail \
+             est dans la sortie / stderr ci-dessus.\r\n"
+        ));
     }
 
     // 2) Purge des installateurs temporaires laissés par winget
@@ -663,7 +785,7 @@ fn mise_a_jour_applications() -> Result<CommandResult, String> {
     Ok(CommandResult {
         stdout: rapport,
         stderr: stderr_all,
-        exit_code,
+        exit_code: if echecs == 0 { Some(0) } else { Some(1) },
         duration_ms: start.elapsed().as_millis(),
         elevated,
     })
@@ -770,6 +892,7 @@ pub fn run() {
             get_critical_events,
             get_diagnostic,
             run_diagnostic_command,
+            list_available_updates,
             update_applications,
             check_elevation
         ])
@@ -914,5 +1037,65 @@ mod tests {
         // ~46 octets x 8000 lignes ~ 370 Ko >> buffer du pipe
         assert!(out.stdout.len() > 100_000, "sortie trop courte : {}", out.stdout.len());
         assert!(start.elapsed().as_secs() < 10, "la commande a bloque : {:?}", start.elapsed());
+    }
+}
+
+#[cfg(test)]
+mod tests_winget {
+    use super::*;
+
+    // Sortie réelle de `winget upgrade --include-unknown` (locale FR).
+    const SORTIE_WINGET: &str = "Nom                               ID                            Version              Disponible               Source\r\n------------------------------------------------------------------------------------------------------------\r\nEpic Online Services              EpicGames.EpicOnlineServices  4.2.1                4.3.1                    winget\r\nOpenAL                            CreativeTechnology.OpenAL     Unknown              1.1                      winget\r\nSpotify                           Spotify.Spotify               1.2.76.298.g2316a870 1.3.6.1921.g7086c071a617 winget\r\nTerminal Windows                  Microsoft.WindowsTerminal     1.24.12741.0         1.25.2733.0              winget\r\nTmUnitedForever Update 2010-03-15 Nadeo.TrackManiaUnitedForever Unknown              2.11.26                  winget\r\n5 mises à niveau disponibles.\r\n";
+
+    #[test]
+    fn parse_table_winget() {
+        let paquets = parse_winget_upgrade_table(SORTIE_WINGET);
+        assert_eq!(paquets.len(), 5, "la ligne de résumé doit être écartée");
+        assert_eq!(paquets[0].name, "Epic Online Services");
+        assert_eq!(paquets[0].id, "EpicGames.EpicOnlineServices");
+        assert_eq!(paquets[0].version, "4.2.1");
+        assert_eq!(paquets[0].available, "4.3.1");
+        // nom avec espaces + version Unknown
+        assert_eq!(paquets[4].name, "TmUnitedForever Update 2010-03-15");
+        assert_eq!(paquets[4].id, "Nadeo.TrackManiaUnitedForever");
+        assert_eq!(paquets[4].version, "Unknown");
+        assert_eq!(paquets[4].available, "2.11.26");
+    }
+
+    #[test]
+    fn parse_table_winget_aucune_mise_a_jour() {
+        // Pas d'en-tête/séparateur -> liste vide sans erreur
+        assert!(parse_winget_upgrade_table("Aucune mise à jour disponible.\r\n").is_empty());
+        assert!(parse_winget_upgrade_table("").is_empty());
+    }
+
+    // Intégration : `winget upgrade` réel est une lecture seule, on vérifie
+    // que le recensement parse bien la sortie de production.
+    #[test]
+    fn winget_reel_liste_mises_a_jour() {
+        let paquets = recenser_mises_a_jour().expect("winget upgrade doit réussir");
+        for p in &paquets {
+            assert!(!p.id.is_empty(), "ID vide pour {:?}", p);
+            assert!(!p.name.is_empty(), "nom vide pour {:?}", p);
+            assert!(!p.available.is_empty(), "version disponible vide pour {:?}", p);
+        }
+    }
+
+    #[test]
+    fn parse_table_winget_nom_avec_accent() {
+        // Les noms accentés décalent les octets mais pas les caractères :
+        // le découpage par indices de chars doit rester correct.
+        let entete = format!("{:<13}{:<16}{:<8}{}", "Nom", "ID", "Version", "Disponible");
+        let ligne = format!("{:<13}{:<16}{:<8}{}", "Café du Thé", "Cafe.Theiere", "1.0", "2.0");
+        let sortie = format!(
+            "{entete}\r\n{}\r\n{ligne}\r\n1 mise à niveau disponible.\r\n",
+            "-".repeat(entete.chars().count())
+        );
+        let paquets = parse_winget_upgrade_table(&sortie);
+        assert_eq!(paquets.len(), 1);
+        assert_eq!(paquets[0].name, "Café du Thé");
+        assert_eq!(paquets[0].id, "Cafe.Theiere");
+        assert_eq!(paquets[0].version, "1.0");
+        assert_eq!(paquets[0].available, "2.0");
     }
 }

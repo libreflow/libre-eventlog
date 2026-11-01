@@ -780,6 +780,64 @@ tr:focus-visible {
   margin-top: 16px;
 }
 
+/* ---------- Modale de mise à jour (sélection winget) ---------- */
+
+.modal-maj {
+  width: min(640px, 92vw);
+}
+
+.maj-status {
+  padding: 12px 0;
+}
+
+.maj-liste {
+  max-height: 44vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 6px;
+  margin-top: 8px;
+}
+
+.maj-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.maj-item:hover {
+  background: var(--surface-2);
+}
+
+.maj-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.maj-tous {
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 4px;
+  border-radius: 0;
+  color: var(--muted);
+}
+
+.maj-nom {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maj-versions {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

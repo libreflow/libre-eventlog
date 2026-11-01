@@ -1,19 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { CommandResult, CommandeFix, CriticalEvent, Diagnostic } from "./types";
+import type {
+  CommandResult,
+  CommandeFix,
+  CriticalEvent,
+  Diagnostic,
+  WingetPackage,
+} from "./types";
 
 const CANAUX = ["Tous", "System", "Application"] as const;
 const SEVERITES = ["Toutes", "Critique", "Erreur"] as const;
 
-// Maintenance intégrée : mise à jour de toutes les applications via winget,
-// purge des installateurs résiduels et détection des anciennes versions.
-// `commande` est purement indicative : l'exécution passe par la commande
-// Tauri dédiée `update_applications` (voir executerCommande).
+// Maintenance intégrée : sélection des applications à mettre à jour via
+// winget, purge des installateurs résiduels et détection des anciennes
+// versions. `commande` est purement indicative : l'exécution passe par la
+// commande Tauri dédiée `update_applications` (voir executerMajApps).
 const MAJ_APPS: CommandeFix = {
-  label: "Mettre à jour toutes les applications",
+  label: "Mettre à jour les applications",
   description:
-    "winget upgrade --all, purge des installateurs résiduels et détection des anciennes versions",
-  commande: "winget upgrade --all --silent (maintenance intégrée)",
+    "winget upgrade (paquets sélectionnés), purge des installateurs résiduels et détection des anciennes versions",
+  commande: "winget upgrade --silent --exact --id <paquet> (maintenance intégrée)",
   type: "action",
   elevation: true,
   confirme: true,
@@ -74,6 +80,10 @@ export default function App() {
   const [terminalOuvert, setTerminalOuvert] = useState(false);
   const [confirmCmd, setConfirmCmd] = useState<CommandeFix | null>(null);
   const [runningCmd, setRunningCmd] = useState<string | null>(null);
+  const [majOuverte, setMajOuverte] = useState(false);
+  const [majChargement, setMajChargement] = useState(false);
+  const [majPaquets, setMajPaquets] = useState<WingetPackage[]>([]);
+  const [majSelection, setMajSelection] = useState<Set<string>>(new Set());
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
@@ -85,13 +95,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!confirmCmd) return;
+    if (!confirmCmd && !majOuverte) return;
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") setConfirmCmd(null);
+      if (ev.key === "Escape") {
+        setConfirmCmd(null);
+        setMajOuverte(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmCmd]);
+  }, [confirmCmd, majOuverte]);
 
   useEffect(() => {
     document.title = selected
@@ -148,12 +161,9 @@ export default function App() {
     ]);
     setRunningCmd(cmd.commande);
     try {
-      const res =
-        cmd === MAJ_APPS
-          ? await invoke<CommandResult>("update_applications")
-          : await invoke<CommandResult>("run_diagnostic_command", {
-              commande: cmd.commande,
-            });
+      const res = await invoke<CommandResult>("run_diagnostic_command", {
+        commande: cmd.commande,
+      });
       setTerminal((t) =>
         t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
       );
@@ -173,6 +183,74 @@ export default function App() {
       setConfirmCmd(cmd);
     } else {
       executerCommande(cmd);
+    }
+  }
+
+  async function ouvrirMiseAJour() {
+    setMajOuverte(true);
+    setMajChargement(true);
+    setMajPaquets([]);
+    setMajSelection(new Set());
+    try {
+      const res = await invoke<WingetPackage[]>("list_available_updates");
+      setMajPaquets(res);
+      setMajSelection(new Set(res.map((p) => p.id)));
+    } catch (e) {
+      setMajOuverte(false);
+      setError(String(e));
+    } finally {
+      setMajChargement(false);
+    }
+  }
+
+  function togglePaquet(id: string) {
+    setMajSelection((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  function toggleTout() {
+    setMajSelection((s) =>
+      s.size === majPaquets.length
+        ? new Set()
+        : new Set(majPaquets.map((p) => p.id)),
+    );
+  }
+
+  async function executerMajApps(ids: string[]) {
+    setMajOuverte(false);
+    const id = nextId.current++;
+    const time = new Date().toLocaleTimeString("fr-FR");
+    setTerminalOuvert(true);
+    setTerminal((t) => [
+      ...t,
+      {
+        id,
+        label: MAJ_APPS.label,
+        commande: `${MAJ_APPS.commande} — ${ids.length} paquet(s)`,
+        result: null,
+        error: null,
+        running: true,
+        time,
+      },
+    ]);
+    setRunningCmd(MAJ_APPS.commande);
+    try {
+      const res = await invoke<CommandResult>("update_applications", { ids });
+      setTerminal((t) =>
+        t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
+      );
+    } catch (err) {
+      setTerminal((t) =>
+        t.map((e) =>
+          e.id === id ? { ...e, error: String(err), running: false } : e,
+        ),
+      );
+    } finally {
+      setRunningCmd(null);
     }
   }
 
@@ -265,12 +343,12 @@ export default function App() {
         </button>
         <button
           className="btn"
-          onClick={() => demanderExecution(MAJ_APPS)}
-          disabled={elevated === false || runningCmd !== null}
+          onClick={ouvrirMiseAJour}
+          disabled={elevated === false || runningCmd !== null || majChargement}
           title={
             elevated === false
               ? "Nécessite de relancer l'application en administrateur"
-              : "Met à jour toutes les applications via winget, purge les installateurs résiduels et liste les anciennes versions (peut prendre plusieurs minutes)"
+              : "Liste les mises à jour disponibles : choisissez celles à installer, les installateurs résiduels sont purgés et les anciennes versions listées"
           }
         >
           {elevated === false ? "🔒" : "⬆"} Mettre à jour les apps
@@ -562,6 +640,72 @@ export default function App() {
         <button className="btn terminal-restore" onClick={() => setTerminalOuvert(true)}>
           ⌨ Terminal ({terminal.length})
         </button>
+      )}
+
+      {majOuverte && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="maj-title"
+          onClick={() => !majChargement && setMajOuverte(false)}
+        >
+          <div className="modal modal-maj" onClick={(e) => e.stopPropagation()}>
+            <h3 id="maj-title">⬆ Mettre à jour les applications</h3>
+            <p className="cmd-desc">{MAJ_APPS.description}</p>
+
+            {majChargement && (
+              <p className="maj-status">⏳ Recherche des mises à jour disponibles…</p>
+            )}
+
+            {!majChargement && majPaquets.length === 0 && (
+              <p className="maj-status">✅ Aucune mise à jour disponible. Tout est à jour !</p>
+            )}
+
+            {!majChargement && majPaquets.length > 0 && (
+              <div className="maj-liste" role="group" aria-label="Applications à mettre à jour">
+                <label className="maj-item maj-tous">
+                  <input
+                    type="checkbox"
+                    checked={majSelection.size === majPaquets.length}
+                    onChange={toggleTout}
+                  />
+                  <strong>
+                    Tout sélectionner ({majSelection.size}/{majPaquets.length})
+                  </strong>
+                </label>
+                {majPaquets.map((p) => (
+                  <label key={p.id} className="maj-item">
+                    <input
+                      type="checkbox"
+                      checked={majSelection.has(p.id)}
+                      onChange={() => togglePaquet(p.id)}
+                    />
+                    <span className="maj-nom" title={p.id}>
+                      {p.name}
+                    </span>
+                    <span className="maj-versions mono">
+                      {p.version} → {p.available}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setMajOuverte(false)} disabled={majChargement}>
+                Annuler
+              </button>
+              <button
+                className="btn primary"
+                disabled={majChargement || majSelection.size === 0 || runningCmd !== null}
+                onClick={() => executerMajApps([...majSelection])}
+              >
+                ⬆ Mettre à jour ({majSelection.size})
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {confirmCmd && (

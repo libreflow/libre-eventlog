@@ -37,3 +37,10 @@ export interface CommandResult {
   durationMs: number;
   elevated: boolean;
 }
+
+export interface WingetPackage {
+  name: string;
+  id: string;
+  version: string;
+  available: string;
+}

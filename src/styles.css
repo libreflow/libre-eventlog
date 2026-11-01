@@ -474,7 +474,9 @@ tr:focus-visible {
 }
 
 .events-table td {
-  padding: 10px 14px;
+  /* Hauteur fixe : condition de la virtualisation (fenêtrage sans mesure) */
+  height: 40px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--border-soft);
   cursor: pointer;
   white-space: nowrap;
@@ -1590,7 +1592,9 @@ tr:focus-visible {
 /* ---------- Regroupement par jour + lignes critiques (table) ---------- */
 
 .groupe-jour td {
-  padding: 16px 14px 7px;
+  /* Hauteur fixe identique aux lignes d'événements (virtualisation) */
+  height: 40px;
+  padding: 0 14px;
   font-size: var(--text-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -1809,4 +1813,10 @@ input {
 .audit-historique {
   font-size: var(--text-xs);
   color: var(--muted);
+}
+
+/* Les états vide/chargement ne sont pas des lignes virtualisées :
+   hauteur libre malgré la règle fixe des lignes d'événements. */
+.events-table td.empty-state {
+  height: auto;
 }

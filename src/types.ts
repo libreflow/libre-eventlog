@@ -77,3 +77,27 @@ export interface ProblemDevice {
   problemCode: string;
   status: string;
 }
+
+export interface CategorieScore {
+  categorie: string;
+  score: number;
+  problemes: number;
+}
+
+export interface ProblemAgrege {
+  provider: string;
+  eventId: number;
+  level: number;
+  count: number;
+  titre: string;
+  categorie: string;
+  etapes: string[];
+}
+
+export interface AuditSante {
+  global: number;
+  categories: CategorieScore[];
+  problemes: ProblemAgrege[];
+  totalEvenements: number;
+  genereLe: string;
+}

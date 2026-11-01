@@ -984,6 +984,129 @@ tr:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* ---------- Audit de santé ---------- */
+
+.audit-global {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0;
+}
+
+.audit-score-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.audit-score {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.audit-score.bon, .audit-jauge-remplie.bon { color: #3ddc84; }
+.audit-score.moyen { color: var(--warn); }
+.audit-score.mauvais { color: var(--danger); }
+
+.audit-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.audit-categorie {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.audit-categorie-tete {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  margin-bottom: 5px;
+}
+
+.audit-jauge {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.audit-jauge-remplie {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.audit-jauge-remplie.bon { background: #3ddc84; }
+.audit-jauge-remplie.moyen { background: var(--warn); }
+.audit-jauge-remplie.mauvais { background: var(--danger); }
+
+.audit-categorie-nb {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.audit-probleme {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.audit-probleme-tete {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-probleme-titre {
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-probleme-titre:hover {
+  color: var(--accent);
+}
+
+.audit-etapes {
+  margin: 6px 0 0 26px;
+  padding: 0;
+  list-style: none;
+}
+
+.audit-etape {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 3px 0;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.audit-etape input {
+  accent-color: var(--accent);
+  margin-top: 2px;
+}
+
+.audit-etape .fait {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

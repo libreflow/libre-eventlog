@@ -29,6 +29,36 @@ pub struct CollecteResult {
     pub avertissements: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CategorieScore {
+    pub categorie: String,
+    pub score: u8,
+    pub problemes: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProblemAgrege {
+    pub provider: String,
+    pub event_id: u32,
+    pub level: u8,
+    pub count: u32,
+    pub titre: String,
+    pub categorie: String,
+    pub etapes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditSante {
+    pub global: u8,
+    pub categories: Vec<CategorieScore>,
+    pub problemes: Vec<ProblemAgrege>,
+    pub total_evenements: u32,
+    pub genere_le: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FixEntry {
@@ -1035,6 +1065,109 @@ Get-PnpDevice -PresentOnly | Where-Object { $_.Status -ne 'OK' } | ForEach-Objec
 }
 "#;
 
+// ----- Audit de santé -----
+
+// Agrège les événements collectés par problème (provider + eventId) et
+// calcule un score de santé par catégorie. Pénalités : critique -15,
+// erreur -8, avertissement -4, info -3 par problème unique, plus -2 par
+// occurrence supplémentaire (plafonné à 5 occurrences). Score plancher 0.
+fn calculer_audit() -> AuditSante {
+    use std::collections::BTreeMap;
+
+    let collecte = collecter_evenements(200, true);
+
+    // (provider, event_id) -> (niveau le plus grave, occurrences, fix)
+    let mut agreges: BTreeMap<(String, u32), (u8, u32, Option<FixEntry>)> = BTreeMap::new();
+    for e in &collecte.events {
+        let fix = lookup_fix(&e.provider, e.event_id);
+        let cle = (e.provider.clone(), e.event_id);
+        match agreges.get_mut(&cle) {
+            Some(a) => {
+                a.1 += 1;
+                if e.level < a.0 {
+                    a.0 = e.level; // niveau le plus grave au sens métier (1 < 2 < 3)
+                }
+            }
+            None => {
+                agreges.insert(cle, (e.level, 1, fix));
+            }
+        }
+    }
+
+    let penalite_niveau = |level: u8| -> u32 {
+        match level {
+            1 => 15,
+            2 => 8,
+            3 => 4,
+            _ => 3,
+        }
+    };
+
+    let mut problemes: Vec<ProblemAgrege> = Vec::new();
+    let mut scores: BTreeMap<String, (u32, u32)> = BTreeMap::new(); // categorie -> (pénalités, nb problèmes)
+    for ((provider, event_id), (level, count, fix)) in &agreges {
+        let categorie = fix
+            .as_ref()
+            .map(|f| f.categorie.clone())
+            .unwrap_or_else(|| "non identifie".to_string());
+        let titre = fix
+            .as_ref()
+            .map(|f| f.titre.clone())
+            .unwrap_or_else(|| format!("{provider} — événement {event_id}"));
+        let etapes = fix.as_ref().map(|f| f.etapes.clone()).unwrap_or_default();
+
+        let penalite = penalite_niveau(*level) + (count.saturating_sub(1).min(5)) * 2;
+        let s = scores.entry(categorie.clone()).or_insert((0, 0));
+        s.0 += penalite;
+        s.1 += 1;
+
+        problemes.push(ProblemAgrege {
+            provider: provider.clone(),
+            event_id: *event_id,
+            level: *level,
+            count: *count,
+            titre,
+            categorie,
+            etapes,
+        });
+    }
+
+    // Tri : niveau le plus grave d'abord, puis occurrences décroissantes.
+    problemes.sort_by(|a, b| a.level.cmp(&b.level).then(b.count.cmp(&a.count)));
+
+    let categories: Vec<CategorieScore> = scores
+        .into_iter()
+        .map(|(categorie, (penalites, nb))| CategorieScore {
+            score: (100u32.saturating_sub(penalites)).min(100) as u8,
+            categorie,
+            problemes: nb,
+        })
+        .collect();
+
+    let global = if categories.is_empty() {
+        100
+    } else {
+        let somme: u32 = categories.iter().map(|c| c.score as u32).sum();
+        (somme / categories.len() as u32) as u8
+    };
+
+    AuditSante {
+        global,
+        categories,
+        problemes,
+        total_evenements: collecte.events.len() as u32,
+        genere_le: chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+    }
+}
+
+#[tauri::command]
+async fn get_health_audit() -> Result<AuditSante, String> {
+    let audit = tauri::async_runtime::spawn_blocking(calculer_audit)
+        .await
+        .map_err(|e| format!("L'audit a échoué : {}", e))?;
+    Ok(audit)
+}
+
 fn lire_systeme_info() -> Result<SystemInfo, String> {
     let child = Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PS_SYSTEM_INFO])
@@ -1388,6 +1521,7 @@ pub fn run() {
             install_windows_updates,
             get_system_info,
             list_problem_devices,
+            get_health_audit,
             relancer_admin,
             check_elevation
         ])

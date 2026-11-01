@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AuditSante,
   CollecteResult,
   CommandResult,
   CommandeFix,
@@ -243,6 +244,10 @@ export default function App() {
   const [hwProblemes, setHwProblemes] = useState<ProblemDevice[]>([]);
   const [hwChargement, setHwChargement] = useState(false);
   const [hwCharge, setHwCharge] = useState(false);
+  const [auditOuverte, setAuditOuverte] = useState(false);
+  const [auditChargement, setAuditChargement] = useState(false);
+  const [audit, setAudit] = useState<AuditSante | null>(null);
+  const [planAction, setPlanAction] = useState<Record<string, boolean>>({});
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
   const diagSeq = useRef(0);
@@ -524,6 +529,95 @@ export default function App() {
     [events],
   );
 
+  // Plan d'action persistant (localStorage) : étapes cochées par problème.
+  const clePlanAction = (p: { provider: string; eventId: number; index: number }) =>
+    `${p.provider}/${p.eventId}/${p.index}`;
+
+  function toggleEtapePlan(cle: string) {
+    setPlanAction((p) => {
+      const n = { ...p, [cle]: !p[cle] };
+      try {
+        localStorage.setItem("libre-eventlog-plan", JSON.stringify(n));
+      } catch {
+        /* localStorage indisponible : l'état reste en mémoire */
+      }
+      return n;
+    });
+  }
+
+  useEffect(() => {
+    try {
+      const brut = localStorage.getItem("libre-eventlog-plan");
+      if (brut) setPlanAction(JSON.parse(brut));
+    } catch {
+      /* pas de persistance disponible */
+    }
+  }, []);
+
+  async function ouvrirAudit() {
+    setAuditOuverte(true);
+    setAuditChargement(true);
+    try {
+      const res = await invoke<AuditSante>("get_health_audit");
+      setAudit(res);
+    } catch (e) {
+      setError(String(e));
+      setAuditOuverte(false);
+    } finally {
+      setAuditChargement(false);
+    }
+  }
+
+  function rapportMarkdown(a: AuditSante): string {
+    const lignes: string[] = [
+      `# Rapport d'audit — Libre EventLog`,
+      ``,
+      `Généré le ${a.genereLe} — ${a.totalEvenements} événement(s) analysé(s)`,
+      ``,
+      `## Score global : ${a.global}/100`,
+      ``,
+    ];
+    if (a.categories.length > 0) {
+      lignes.push(`## Santé par catégorie`, ``);
+      for (const c of a.categories) {
+        lignes.push(`- **${c.categorie}** : ${c.score}/100 (${c.problemes} problème(s))`);
+      }
+      lignes.push(``);
+    }
+    if (a.problemes.length > 0) {
+      lignes.push(`## Problèmes détectés`, ``);
+      for (const p of a.problemes) {
+        lignes.push(
+          `### ${p.titre}`,
+          ``,
+          `- Provider : \`${p.provider}\` — événement ${p.eventId}`,
+          `- Gravité : ${p.level === 1 ? "Critique" : p.level === 2 ? "Erreur" : p.level === 3 ? "Avertissement" : "Info"} — ${p.count} occurrence(s)`,
+          `- Catégorie : ${p.categorie}`,
+          ``,
+        );
+        if (p.etapes.length > 0) {
+          lignes.push(`Étapes recommandées :`);
+          for (const e of p.etapes) lignes.push(`- [ ] ${e}`);
+          lignes.push(``);
+        }
+      }
+    } else {
+      lignes.push(`Aucun problème détecté. Système sain ! 🎉`);
+    }
+    return lignes.join("\n");
+  }
+
+  function telechargerRapport() {
+    if (!audit) return;
+    const blob = new Blob([rapportMarkdown(audit)], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-libre-eventlog-${audit.genereLe.replace(/[: ]/g, "-")}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const filtres = useMemo(() => {
     const q = recherche.trim().toLowerCase();
     const now = Date.now();
@@ -632,6 +726,14 @@ export default function App() {
           }
         >
           {elevated === false ? "🔒" : "🛠"} Maintenance
+        </button>
+        <button
+          className="btn"
+          onClick={ouvrirAudit}
+          disabled={auditChargement}
+          title="Collecte les événements de tous les canaux, agrège les problèmes et calcule un score de santé par catégorie"
+        >
+          🩺 Audit de santé
         </button>
         <select value={canal} onChange={(e) => setCanal(e.target.value)} aria-label="Filtrer par canal">
           {canauxDisponibles.map((c) => (
@@ -971,6 +1073,120 @@ export default function App() {
         <button className="btn terminal-restore" onClick={() => setTerminalOuvert(true)}>
           ⌨ Terminal ({terminal.length})
         </button>
+      )}
+
+      {auditOuverte && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="audit-title"
+          onClick={() => !auditChargement && setAuditOuverte(false)}
+        >
+          <div className="modal modal-maj" onClick={(e) => e.stopPropagation()}>
+            <h3 id="audit-title">🩺 Audit de santé</h3>
+
+            {auditChargement && (
+              <p className="maj-status">⏳ Collecte et agrégation des événements…</p>
+            )}
+
+            {!auditChargement && audit && (
+              <>
+                <p className="cmd-desc">
+                  {audit.totalEvenements} événement(s) analysé(s) le {audit.genereLe}.
+                  Le score pénalise chaque problème par gravité et par nombre d'occurrences.
+                </p>
+
+                <div className="audit-global">
+                  <div className="audit-score-label">Score global</div>
+                  <div
+                    className={`audit-score ${audit.global >= 80 ? "bon" : audit.global >= 50 ? "moyen" : "mauvais"}`}
+                  >
+                    {audit.global}/100
+                  </div>
+                </div>
+
+                {audit.categories.length > 0 && (
+                  <div className="audit-categories">
+                    {audit.categories.map((c) => (
+                      <div key={c.categorie} className="audit-categorie">
+                        <div className="audit-categorie-tete">
+                          <span>{c.categorie}</span>
+                          <span className="mono">{c.score}/100</span>
+                        </div>
+                        <div
+                          className={`audit-jauge ${c.score >= 80 ? "bon" : c.score >= 50 ? "moyen" : "mauvais"}`}
+                        >
+                          <div className="audit-jauge-remplie" style={{ width: `${c.score}%` }} />
+                        </div>
+                        <span className="audit-categorie-nb">{c.problemes} problème(s)</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {audit.problemes.length > 0 && (
+                  <div className="maj-liste" role="group" aria-label="Problèmes détectés">
+                    {audit.problemes.map((p) => {
+                      const cle = `${p.provider}/${p.eventId}`;
+                      return (
+                        <div key={cle} className="audit-probleme">
+                          <div className="audit-probleme-tete">
+                            <span className={`badge ${severityClass({ level: p.level } as CriticalEvent)}`}>
+                              {p.count}×
+                            </span>
+                            <button
+                              className="audit-probleme-titre"
+                              onClick={() => {
+                                setRecherche(String(p.eventId));
+                                setCanal("Tous");
+                                setAuditOuverte(false);
+                              }}
+                              title="Filtrer la liste des événements sur ce problème"
+                            >
+                              {p.titre}
+                            </button>
+                          </div>
+                          {p.etapes.length > 0 && (
+                            <ul className="audit-etapes">
+                              {p.etapes.map((etape, i) => {
+                                const cleEtape = clePlanAction({ provider: p.provider, eventId: p.eventId, index: i });
+                                return (
+                                  <li key={i}>
+                                    <label className="audit-etape">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!planAction[cleEtape]}
+                                        onChange={() => toggleEtapePlan(cleEtape)}
+                                      />
+                                      <span className={planAction[cleEtape] ? "fait" : ""}>{etape}</span>
+                                    </label>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="modal-actions">
+                  <button className="btn" onClick={() => setAuditOuverte(false)}>
+                    Fermer
+                  </button>
+                  <button className="btn" onClick={() => audit && copierTexte(rapportMarkdown(audit))}>
+                    📋 Copier le rapport
+                  </button>
+                  <button className="btn primary" onClick={telechargerRapport}>
+                    💾 Télécharger (.md)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {majOuverte && (

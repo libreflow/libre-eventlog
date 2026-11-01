@@ -65,12 +65,12 @@
   --shadow-lg: 0 24px 70px rgba(30, 40, 60, 0.22);
   --ring: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent);
 
-  --danger-soft: rgba(217, 54, 54, 0.09);
-  --danger-border: rgba(217, 54, 54, 0.3);
-  --warn-soft: rgba(184, 134, 11, 0.1);
-  --warn-border: rgba(184, 134, 11, 0.32);
-  --ok-soft: rgba(30, 158, 62, 0.1);
-  --ok-border: rgba(30, 158, 62, 0.32);
+  --danger-soft: rgba(201, 38, 38, 0.09);
+  --danger-border: rgba(201, 38, 38, 0.3);
+  --warn-soft: rgba(138, 101, 0, 0.1);
+  --warn-border: rgba(138, 101, 0, 0.32);
+  --ok-soft: rgba(23, 122, 49, 0.1);
+  --ok-border: rgba(23, 122, 49, 0.32);
   --accent-border: rgba(38, 88, 196, 0.3);
   --accent-2: #8b6cf5;
   --accent-strong: #1f4fb8;

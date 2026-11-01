@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -17,5 +18,10 @@ export default defineConfig({
     target: "es2021",
     minify: "esbuild",
     sourcemap: false,
+  },
+  test: {
+    // Fonctions pures : environnement node suffisant (pas de DOM requis).
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 });

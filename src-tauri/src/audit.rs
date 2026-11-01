@@ -2,6 +2,7 @@ use crate::collecte::collecter_evenements;
 use crate::kb::lookup_fix;
 use crate::types::*;
 
+// ----- Audit de santé -----
 // Agrège les événements collectés par problème (provider + eventId) et
 // calcule un score de santé par catégorie. Pénalités : critique -15,
 // erreur -8, avertissement -4, info -3 par problème unique, plus -2 par

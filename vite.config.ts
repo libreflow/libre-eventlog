@@ -1,5 +1,7 @@
 /// <reference types="vitest" />
-import { defineConfig } from "vite";
+// defineConfig depuis vitest/config : type la section `test` tout en
+// restant compatible avec vite build/dev.
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({

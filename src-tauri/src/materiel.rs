@@ -1,6 +1,8 @@
 use crate::powershell::{attendre_avec_timeout, spawn_powershell};
 use crate::types::*;
 
+// ----- Matériel & BIOS (lecture seule, CIM/PnP) -----
+
 // Fabricant, modèle, version/date de BIOS et numéro de série (utile pour
 // le support constructeur : Service Tag Dell, S/N HP/Lenovo). Sur les PC
 // assemblés, le fabricant système est générique : on retombe sur la carte
@@ -28,8 +30,6 @@ Get-PnpDevice -PresentOnly | Where-Object { $_.Status -ne 'OK' } | ForEach-Objec
   "{0}|{1}|{2}|{3}" -f ($_.Name -replace '\|',' '), ($_.InstanceId -replace '\|',' '), "$code", $_.Status
 }
 "#;
-
-// ----- Audit de santé -----
 
 pub fn lire_systeme_info() -> Result<SystemInfo, String> {
     let child = spawn_powershell(PS_SYSTEM_INFO, &[])?;

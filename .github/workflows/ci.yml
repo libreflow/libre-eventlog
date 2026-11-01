@@ -53,7 +53,7 @@ jobs:
         working-directory: src-tauri
 
       - name: Rust linter
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
         working-directory: src-tauri
 
       - name: Rust tests (unitaires + intégrations réelles lecture seule)

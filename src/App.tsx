@@ -1402,7 +1402,7 @@ export default function App() {
                       return (
                         <div key={cle} className="audit-probleme">
                           <div className="audit-probleme-tete">
-                            <span className={`badge ${severityClass({ level: p.level } as CriticalEvent)}`}>
+                            <span className={`badge ${severityClass({ level: p.level })}`}>
                               {p.count}×
                             </span>
                             <button

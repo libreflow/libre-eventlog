@@ -511,7 +511,16 @@ mod tests_winget {
     // que le recensement parse bien la sortie de production.
     #[test]
     fn winget_reel_liste_mises_a_jour() {
-        let paquets = recenser_mises_a_jour().expect("winget upgrade doit réussir");
+        // Certains environnements CI (Windows Server sans App Installer) n'ont
+        // pas winget : le test se borne alors à le signaler au lieu d'échouer.
+        let paquets = match recenser_mises_a_jour() {
+            Ok(p) => p,
+            Err(e) if e.contains("winget est introuvable") => {
+                eprintln!("winget absent de cette machine — test réel ignoré");
+                return;
+            }
+            Err(e) => panic!("winget upgrade doit réussir : {e}"),
+        };
         for p in &paquets {
             assert!(!p.id.is_empty(), "ID vide pour {:?}", p);
             assert!(!p.name.is_empty(), "nom vide pour {:?}", p);

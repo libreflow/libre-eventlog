@@ -214,8 +214,6 @@ pub async fn update_applications(ids: Vec<String>) -> Result<CommandResult, Stri
         .map_err(|e| format!("La mise à jour a échoué : {}", e))?
 }
 
-// ----- Matériel & BIOS (lecture seule, CIM/PnP) -----
-
 // winget signale qu'une mise à jour est installée mais ne sera finalisée
 // qu'après fermeture/relance de l'application (paquets MSIX/appx exécutés
 // pendant l'installation : Terminal, Photos, etc.) ou qu'un redémarrage du

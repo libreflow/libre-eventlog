@@ -2,6 +2,8 @@
 
 Application desktop Windows (Tauri 2) : **lecteur d'événements Windows avec diagnostics en français** et **outil de maintenance complet** (mises à jour applications, Windows/pilotes, correctifs système, audit de santé).
 
+[![CI](https://github.com/libreflow/libre-eventlog/actions/workflows/ci.yml/badge.svg)](https://github.com/libreflow/libre-eventlog/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 ## Fonctionnalités
 
 ### Lecteur d'événements

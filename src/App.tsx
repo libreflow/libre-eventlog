@@ -1244,7 +1244,14 @@ export default function App() {
       {error && (
         <div className="error" role="alert">
           <AlertTriangle className="icon warn" aria-hidden="true" />
-          {error}
+          <span className="error-texte">{error}</span>
+          <button
+            className="error-fermer"
+            onClick={() => setError(null)}
+            aria-label="Fermer le message d'erreur"
+          >
+            <X size={13} aria-hidden="true" />
+          </button>
         </div>
       )}
 
@@ -1336,6 +1343,20 @@ export default function App() {
                 );
                 return lignes;
               })}
+              {loading && filtres.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="empty-state">
+                    <span className="icon-circle">
+                      <Loader2 className="icon spin" aria-hidden="true" />
+                    </span>
+                    <strong>Collecte des événements…</strong>
+                    <span>
+                      Interrogation des canaux System, Application, WHEA-Logger et
+                      Diagnostics-Performance.
+                    </span>
+                  </td>
+                </tr>
+              )}
               {filtres.length === 0 && !loading && (
                 <tr>
                   <td colSpan={5} className="empty-state">
@@ -1359,7 +1380,7 @@ export default function App() {
           </table>
         </div>
 
-        <aside className="detail" aria-live="polite" ref={detailRef}>
+        <aside className="detail" aria-live="polite" aria-busy={diagLoading} ref={detailRef}>
           {!selected && (
             <div className="detail-empty">
               <span className="icon-circle">
@@ -1505,7 +1526,7 @@ export default function App() {
       {terminalOuvert && (
         <div
           className="terminal"
-          role="region"
+          role="log"
           aria-label="Terminal des commandes exécutées"
           style={{ flexBasis: terminalHauteur }}
         >

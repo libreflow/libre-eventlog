@@ -52,11 +52,15 @@
   --border-soft: #d6dde8;
   --text: #1b2333;
   --muted: #5b6678;
-  --accent: #2f6fe4;
-  --accent-soft: rgba(47, 111, 228, 0.1);
-  --danger: #d93636;
-  --warn: #b8860b;
-  --ok: #1e9e3e;
+  /* Couleurs assombries pour WCAG AA (≥ 4,5:1) sur fond clair :
+     #2f6fe4 4,23 / #d93636 4,21 / #1e9e3e 3,17 avant correction. */
+  --accent: #2658c4;
+  --accent-soft: rgba(38, 88, 196, 0.1);
+  --danger: #c92626;
+  /* Ambre assombri : #b8860b ne donne que 2,96:1 sur le fond clair
+     (WCAG AA exige 4,5:1) ; #8a6500 atteint 4,84:1. */
+  --warn: #8a6500;
+  --ok: #177a31;
   --shadow: 0 8px 24px rgba(30, 40, 60, 0.12);
   --shadow-lg: 0 24px 70px rgba(30, 40, 60, 0.22);
   --ring: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent);
@@ -67,9 +71,9 @@
   --warn-border: rgba(184, 134, 11, 0.32);
   --ok-soft: rgba(30, 158, 62, 0.1);
   --ok-border: rgba(30, 158, 62, 0.32);
-  --accent-border: rgba(47, 111, 228, 0.3);
+  --accent-border: rgba(38, 88, 196, 0.3);
   --accent-2: #8b6cf5;
-  --accent-strong: #2658c4;
+  --accent-strong: #1f4fb8;
   --code-text: #39445a;
 }
 
@@ -358,18 +362,48 @@ tr:focus-visible {
 
 .btn:disabled {
   opacity: 0.6;
-  cursor: wait;
+  /* not-allowed et non wait : un bouton peut être désactivé par
+     permissions (mode limité) et non parce qu'un traitement tourne —
+     le spinner du bouton communique déjà le chargement. */
+  cursor: not-allowed;
 }
 
 /* ---------- Messages ---------- */
 
 .error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--danger-soft);
   border: 1px solid var(--danger);
   color: var(--danger);
   padding: 10px 14px;
   border-radius: 8px;
   font-size: var(--text-base);
+}
+
+.error-texte {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.error-fermer {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.error-fermer:hover {
+  background: var(--danger);
+  color: #fff;
 }
 
 /* ---------- Layout ---------- */
@@ -966,6 +1000,10 @@ tr:focus-visible {
   border-radius: var(--radius-lg);
   padding: 22px;
   width: min(560px, 90vw);
+  /* Fenêtres basses : la modale ne doit jamais dépasser l'écran sans
+     pouvoir défiler (Maintenance/Audit peuvent être hautes). */
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: var(--shadow-lg);
   animation: popIn 0.18s ease;
 }

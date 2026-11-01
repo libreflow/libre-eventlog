@@ -28,6 +28,24 @@ export function useCommandes() {
   const [confirmCmd, setConfirmCmd] = useState<CommandeFix | null>(null);
   const [runningCmd, setRunningCmd] = useState<string | null>(null);
   const [terminalHauteur, setTerminalHauteur] = useState(240);
+  // Notifications système de fin de commande longue (option persistée).
+  const [notifications, setNotifications] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("libre-eventlog-notifications") !== "off";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "libre-eventlog-notifications",
+        notifications ? "on" : "off",
+      );
+    } catch {
+      /* persistance indisponible */
+    }
+  }, [notifications]);
   const dragTerminal = useRef<{ y: number; h: number } | null>(null);
   const nextId = useRef(1);
   const termRef = useRef<HTMLDivElement>(null);
@@ -82,6 +100,25 @@ export function useCommandes() {
     dragTerminal.current = null;
   }
 
+  // Prévient par notification système si une commande LONGUE se termine
+  // pendant que la fenêtre est minimisée (l'utilisateur ne voit pas le
+  // terminal) — typiquement un sfc /scannow ou une installation winget.
+  async function notifierFin(label: string, reussie: boolean, dureeMs: number) {
+    if (!notifications || dureeMs < 60_000) return;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      if (!(await getCurrentWindow().isMinimized())) return;
+      await invoke("plugin:notification|notify", {
+        title: reussie
+          ? "Libre EventLog — commande terminée"
+          : "Libre EventLog — commande en échec",
+        body: `${label} — ${Math.round(dureeMs / 1000)} s`,
+      });
+    } catch {
+      /* hors webview ou permission refusée : silencieux */
+    }
+  }
+
   async function lancerTacheTerminal(
     label: string,
     commandeAffichee: string,
@@ -108,17 +145,20 @@ export function useCommandes() {
       },
     ]);
     setRunningCmd(cleRunning);
+    const debut = Date.now();
     try {
       const res = await tache(id);
       setTerminal((t) =>
         t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
       );
+      notifierFin(label, true, Date.now() - debut);
     } catch (err) {
       setTerminal((t) =>
         t.map((e) =>
           e.id === id ? { ...e, error: String(err), running: false } : e,
         ),
       );
+      notifierFin(label, false, Date.now() - debut);
     } finally {
       setRunningCmd(null);
     }
@@ -177,5 +217,7 @@ export function useCommandes() {
     demanderExecution,
     lancerTacheTerminal,
     annulerCommande,
+    notifications,
+    setNotifications,
   };
 }

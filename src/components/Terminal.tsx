@@ -1,5 +1,7 @@
 import type { RefObject } from "react";
 import {
+  Bell,
+  BellOff,
   CheckCircle2,
   Copy,
   Loader2,
@@ -42,6 +44,8 @@ export function Terminal({
   onBougerRedimension,
   onFinirRedimension,
   onAnnuler,
+  notifications,
+  onToggleNotifications,
 }: {
   ouvert: boolean;
   onOuvrir: () => void;
@@ -54,6 +58,8 @@ export function Terminal({
   onBougerRedimension: (e: React.PointerEvent) => void;
   onFinirRedimension: () => void;
   onAnnuler: (entreeId: number) => void;
+  notifications: boolean;
+  onToggleNotifications: () => void;
 }) {
   if (!ouvert) {
     if (entries.length === 0) return null;
@@ -86,6 +92,20 @@ export function Terminal({
           Terminal — exécution PowerShell
         </span>
         <div className="terminal-actions">
+          <button
+            className="btn small"
+            onClick={onToggleNotifications}
+            title={notifications
+              ? "Notifications système activées : prévenir quand une commande longue (plus d'une minute) se termine pendant que la fenêtre est minimisée"
+              : "Notifications système désactivées — cliquer pour activer"}
+            aria-pressed={notifications}
+          >
+            {notifications ? (
+              <Bell className="icon" aria-hidden="true" />
+            ) : (
+              <BellOff className="icon muted" aria-hidden="true" />
+            )}
+          </button>
           <button
             className="btn small"
             onClick={onEffacer}

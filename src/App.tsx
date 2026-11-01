@@ -92,6 +92,8 @@ export default function App() {
     demanderExecution,
     lancerTacheTerminal,
     annulerCommande,
+    notifications,
+    setNotifications,
   } = useCommandes();
   const [majOuverte, setMajOuverte] = useState(false);
   const [majChargement, setMajChargement] = useState(false);
@@ -640,6 +642,8 @@ export default function App() {
         onBougerRedimension={bougerRedimension}
         onFinirRedimension={finirRedimension}
         onAnnuler={annulerCommande}
+        notifications={notifications}
+        onToggleNotifications={() => setNotifications((n) => !n)}
       />
 
       {auditOuverte && (

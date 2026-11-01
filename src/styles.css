@@ -1790,3 +1790,23 @@ input {
 .detail details pre {
   margin-top: 6px;
 }
+
+/* ---------- Historique d'audits (modale) ---------- */
+
+.audit-sparkline {
+  flex-shrink: 0;
+}
+
+.audit-tendance {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.audit-tendance.hausse { color: var(--ok); }
+.audit-tendance.baisse { color: var(--danger); }
+.audit-tendance.stable { color: var(--muted); }
+
+.audit-historique {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}

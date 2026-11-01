@@ -5,6 +5,7 @@ import { Anneau } from "./Anneau";
 import { usePiegeFocus } from "../hooks/usePiegeFocus";
 import { severityClass } from "../lib/evenements";
 import { clePlanAction } from "../lib/rapport";
+import type { EntreeAudit } from "../lib/audits";
 
 // Modale d'audit de santé : anneau de score global, jauges par catégorie,
 // problèmes agrégés avec plan d'action cochable, rapport Markdown.
@@ -18,6 +19,8 @@ export function ModaleAudit({
   onCopier,
   rapportCopie,
   onTelecharger,
+  historique,
+  evolutionPrecedente,
 }: {
   audit: AuditSante | null;
   chargement: boolean;
@@ -28,6 +31,8 @@ export function ModaleAudit({
   onCopier: () => void;
   rapportCopie: boolean;
   onTelecharger: () => void;
+  historique: EntreeAudit[];
+  evolutionPrecedente: number | null;
 }) {
   const modalRef = useRef<HTMLDivElement>(null);
   usePiegeFocus(modalRef, true);
@@ -59,12 +64,31 @@ export function ModaleAudit({
 
             <div className="audit-entete">
               <Anneau score={audit.global} taille={116} gros />
+              {historique.length > 1 && <SparklineAudits historique={historique} />}
               <div className="audit-entete-texte">
                 <strong>Score global de santé</strong>
                 <span>
                   {audit.totalEvenements} événement(s) analysé(s) — {audit.problemes.length} problème(s) distinct(s)
                 </span>
                 <span className="audit-date">{audit.genereLe}</span>
+                {evolutionPrecedente != null && (
+                  <span
+                    className={
+                      evolutionPrecedente > 0 ? "audit-tendance hausse" : evolutionPrecedente < 0 ? "audit-tendance baisse" : "audit-tendance stable"
+                    }
+                  >
+                    {evolutionPrecedente > 0
+                      ? `+${evolutionPrecedente} pt vs audit précédent`
+                      : evolutionPrecedente < 0
+                        ? `${evolutionPrecedente} pt vs audit précédent`
+                        : "score stable"}
+                  </span>
+                )}
+                {historique.length > 1 && (
+                  <span className="audit-historique">
+                    Précédents : {historique.slice(1, 5).map((e) => `${e.date} (${e.global})`).join(" · ")}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -150,5 +174,36 @@ export function ModaleAudit({
         )}
       </div>
     </div>
+  );
+}
+
+
+// Sparkline des scores globaux (20 derniers audits, ordre chronologique).
+function SparklineAudits({ historique }: { historique: EntreeAudit[] }) {
+  const points = [...historique].slice(0, 20).reverse();
+  const largeur = 120;
+  const hauteur = 40;
+  const pas = points.length > 1 ? largeur / (points.length - 1) : 0;
+  const coords = points
+    .map((e, i) => `${(i * pas).toFixed(1)},${(hauteur - (e.global / 100) * hauteur).toFixed(1)}`)
+    .join(" ");
+  const dernier = points[points.length - 1];
+  return (
+    <svg
+      width={largeur}
+      height={hauteur}
+      className="audit-sparkline"
+      role="img"
+      aria-label={`Évolution du score : ${points.map((p) => p.global).join(", ")}`}
+    >
+      <polyline
+        points={coords}
+        fill="none"
+        stroke={dernier.global >= 80 ? "var(--ok)" : dernier.global >= 50 ? "var(--warn)" : "var(--danger)"}
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }

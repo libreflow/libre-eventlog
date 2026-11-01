@@ -38,6 +38,7 @@ import { copierTexte } from "./lib/pressepapiers";
 import { rapportMarkdown } from "./lib/rapport";
 import { MAJ_APPS } from "./lib/catalogue";
 import { telechargerCsv } from "./lib/export";
+import { enregistrerAudit, evolution, lireHistorique, type EntreeAudit } from "./lib/audits";
 
 
 
@@ -119,6 +120,7 @@ export default function App() {
   const [audit, setAudit] = useState<AuditSante | null>(null);
   const [planAction, setPlanAction] = useState<Record<string, boolean>>({});
   const [rapportCopie, setRapportCopie] = useState(false);
+  const [historiqueAudits, setHistoriqueAudits] = useState<EntreeAudit[]>([]);
   const { theme, basculerTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement>(null);
   const detailRef = useRef<HTMLElement>(null);
@@ -329,6 +331,10 @@ export default function App() {
   }
 
   useEffect(() => {
+    setHistoriqueAudits(lireHistorique());
+  }, []);
+
+  useEffect(() => {
     try {
       const brut = localStorage.getItem("libre-eventlog-plan");
       if (brut) setPlanAction(JSON.parse(brut));
@@ -343,6 +349,9 @@ export default function App() {
     try {
       const res = await invoke<AuditSante>("get_health_audit");
       setAudit(res);
+      // Historique local (plafonné, dédoublonné par date) : sparkline et
+      // tendance du rapport.
+      setHistoriqueAudits(enregistrerAudit(res));
     } catch (e) {
       setError(String(e));
       setAuditOuverte(false);
@@ -369,7 +378,7 @@ export default function App() {
 
   async function copierRapport() {
     if (!audit) return;
-    await copierTexte(rapportMarkdown(audit, planAction));
+    await copierTexte(rapportMarkdown(audit, planAction, evolution(historiqueAudits, audit.genereLe)));
     setRapportCopie(true);
     setTimeout(() => setRapportCopie(false), 2000);
   }
@@ -694,6 +703,8 @@ export default function App() {
           onCopier={copierRapport}
           rapportCopie={rapportCopie}
           onTelecharger={telechargerRapport}
+          historique={historiqueAudits}
+          evolutionPrecedente={audit ? evolution(historiqueAudits, audit.genereLe) : null}
         />
       )}
 

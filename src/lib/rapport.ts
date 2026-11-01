@@ -11,7 +11,11 @@ export function clePlanAction(p: {
 
 // Rapport Markdown de l'audit : scores, catégories, problèmes et étapes
 // cochées du plan d'action.
-export function rapportMarkdown(a: AuditSante, plan: Record<string, boolean>): string {
+export function rapportMarkdown(
+  a: AuditSante,
+  plan: Record<string, boolean>,
+  evolutionPrecedente?: number | null,
+): string {
   const lignes: string[] = [
     `# Rapport d'audit — Libre EventLog`,
     ``,
@@ -19,6 +23,18 @@ export function rapportMarkdown(a: AuditSante, plan: Record<string, boolean>): s
     ``,
     `## Score global : ${a.global}/100`,
     ``,
+    ...(evolutionPrecedente == null
+      ? []
+      : [
+          `> ${
+            evolutionPrecedente > 0
+              ? `Amélioration de ${evolutionPrecedente} point(s) depuis l'audit précédent`
+              : evolutionPrecedente < 0
+                ? `Baisse de ${-evolutionPrecedente} point(s) depuis l'audit précédent`
+                : "Score identique à l'audit précédent"
+          }`,
+          ``,
+        ]),
   ];
   if (a.categories.length > 0) {
     lignes.push(`## Santé par catégorie`, ``);

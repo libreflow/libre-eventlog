@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
@@ -16,11 +16,7 @@ import {
 } from "lucide-react";
 import type {
   AuditSante,
-  CollecteResult,
   CommandResult,
-  CommandeFix,
-  CriticalEvent,
-  Diagnostic,
   ProblemDevice,
   SystemInfo,
   WinUpdate,
@@ -32,42 +28,70 @@ import { ModaleAudit } from "./components/ModaleAudit";
 import { ModaleMaintenance } from "./components/ModaleMaintenance";
 import { TableEvenements } from "./components/TableEvenements";
 import { PanneauDetail } from "./components/PanneauDetail";
-import type { TerminalEntry } from "./components/Terminal";
 import { usePiegeFocus } from "./hooks/usePiegeFocus";
+import { useTheme } from "./hooks/useTheme";
+import { useCommandes } from "./hooks/useCommandes";
+import { useCollecte } from "./hooks/useCollecte";
 import { SEVERITES } from "./lib/evenements";
 import { copierTexte } from "./lib/pressepapiers";
 import { rapportMarkdown } from "./lib/rapport";
-import { MAJ_APPS, cleCommande } from "./lib/catalogue";
-import type { SortDir, SortKey } from "./lib/catalogue";
+import { MAJ_APPS } from "./lib/catalogue";
 
 
 
 
 export default function App() {
-  const [events, setEvents] = useState<CriticalEvent[]>([]);
-  const [selected, setSelected] = useState<CriticalEvent | null>(null);
-  const [diagnostic, setDiagnostic] = useState<Diagnostic | null>(null);
-  const [diagLoading, setDiagLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [avertissements, setAvertissements] = useState<string[]>([]);
-  const [limite, setLimite] = useState<string>("50");
-  const [inclureAvert, setInclureAvert] = useState(false);
-  const [relanceEnCours, setRelanceEnCours] = useState(false);
-  const [canal, setCanal] = useState<string>("Tous");
-  const [severite, setSeverite] = useState<string>("Toutes");
-  const [recherche, setRecherche] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("timestamp");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [depuis, setDepuis] = useState<string>("24");
+  const {
+    events,
+    avertissements,
+    error,
+    setError,
+    loading,
+    limite,
+    setLimite,
+    inclureAvert,
+    setInclureAvert,
+    autoRefresh,
+    setAutoRefresh,
+    charger,
+    chargerRef,
+    canauxDisponibles,
+    canal,
+    setCanal,
+    severite,
+    setSeverite,
+    recherche,
+    setRecherche,
+    depuis,
+    setDepuis,
+    sortKey,
+    sortDir,
+    trier,
+    filtres,
+    selected,
+    selectionner,
+    diagnostic,
+    diagLoading,
+  } = useCollecte();
   const [elevated, setElevated] = useState<boolean | null>(null);
-  const [terminal, setTerminal] = useState<TerminalEntry[]>([]);
-  const [terminalOuvert, setTerminalOuvert] = useState(false);
-  const [confirmCmd, setConfirmCmd] = useState<CommandeFix | null>(null);
-  const majModalRef = useRef<HTMLDivElement>(null);
-  const confirmModalRef = useRef<HTMLDivElement>(null);
-  const auditModalRef = useRef<HTMLDivElement>(null);
-  const [runningCmd, setRunningCmd] = useState<string | null>(null);
+  const [relanceEnCours, setRelanceEnCours] = useState(false);
+  const {
+    terminal,
+    setTerminal,
+    terminalOuvert,
+    setTerminalOuvert,
+    confirmCmd,
+    setConfirmCmd,
+    runningCmd,
+    terminalHauteur,
+    termRef,
+    commencerRedimension,
+    bougerRedimension,
+    finirRedimension,
+    executerCommande,
+    demanderExecution,
+    lancerTacheTerminal,
+  } = useCommandes();
   const [majOuverte, setMajOuverte] = useState(false);
   const [majChargement, setMajChargement] = useState(false);
   const [majPaquets, setMajPaquets] = useState<WingetPackage[]>([]);
@@ -87,40 +111,12 @@ export default function App() {
   const [audit, setAudit] = useState<AuditSante | null>(null);
   const [planAction, setPlanAction] = useState<Record<string, boolean>>({});
   const [rapportCopie, setRapportCopie] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState("0");
-  const [theme, setTheme] = useState<string>(() => {
-    try {
-      return localStorage.getItem("libre-eventlog-theme") ?? "sombre";
-    } catch {
-      return "sombre";
-    }
-  });
+  const { theme, basculerTheme } = useTheme();
   const searchRef = useRef<HTMLInputElement>(null);
-  const chargerRef = useRef<() => void>(() => {});
   const detailRef = useRef<HTMLElement>(null);
-  const [terminalHauteur, setTerminalHauteur] = useState(240);
-  const dragTerminal = useRef<{ y: number; h: number } | null>(null);
-
-  function commencerRedimension(e: React.PointerEvent) {
-    dragTerminal.current = { y: e.clientY, h: terminalHauteur };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function bougerRedimension(e: React.PointerEvent) {
-    if (!dragTerminal.current) return;
-    const delta = dragTerminal.current.y - e.clientY;
-    setTerminalHauteur(
-      Math.min(600, Math.max(140, dragTerminal.current.h + delta)),
-    );
-  }
-
-  function finirRedimension() {
-    dragTerminal.current = null;
-  }
-  const nextId = useRef(1);
-  const termRef = useRef<HTMLDivElement>(null);
-  const diagSeq = useRef(0);
-  const collecteSeq = useRef(0);
+  const majModalRef = useRef<HTMLDivElement>(null);
+  const confirmModalRef = useRef<HTMLDivElement>(null);
+  const auditModalRef = useRef<HTMLDivElement>(null);
 
   // Piège de focus actif pour chaque modale ouverte.
   usePiegeFocus(majModalRef, majOuverte);
@@ -132,9 +128,6 @@ export default function App() {
       .then(setElevated)
       .catch(() => setElevated(false));
   }, []);
-
-  // Toujours à jour pour les raccourcis clavier et l'auto-refresh.
-  chargerRef.current = charger;
 
   // Raccourcis clavier : F5 analyser, Ctrl+F recherche, Ctrl+T terminal.
   // Ignorés pendant qu'une modale est ouverte : le clavier appartient à
@@ -158,32 +151,6 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [modaleOuverte]);
-
-  // Auto-rafraîchissement de la collecte.
-  useEffect(() => {
-    if (autoRefresh === "0") return;
-    const minutes = Number(autoRefresh);
-    const timer = setInterval(() => chargerRef.current(), minutes * 60_000);
-    return () => clearInterval(timer);
-  }, [autoRefresh]);
-
-  // Thème clair/sombre persistant. Le chrome de la fenêtre (barre de titre
-  // Windows) suit le même thème, sinon le mode clair garde une barre sombre.
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    import("@tauri-apps/api/window")
-      .then(({ getCurrentWindow }) =>
-        getCurrentWindow().setTheme(theme === "sombre" ? "dark" : "light"),
-      )
-      .catch(() => {
-        /* hors webview Tauri (navigateur) : pas de chrome à synchroniser */
-      });
-    try {
-      localStorage.setItem("libre-eventlog-theme", theme);
-    } catch {
-      /* persistance indisponible */
-    }
-  }, [theme]);
 
   // Échap ferme uniquement la modale de premier plan (une confirmation
   // peut s'ouvrir par-dessus la fenêtre Maintenance : Échap ne doit pas
@@ -216,111 +183,6 @@ export default function App() {
       ? `${selected.provider} (${selected.eventId}) — Libre EventLog`
       : "Libre EventLog";
   }, [selected]);
-
-  useEffect(() => {
-    if (termRef.current) {
-      termRef.current.scrollTop = termRef.current.scrollHeight;
-    }
-  }, [terminal]);
-
-  async function charger(overLimite?: string, overAvert?: boolean) {
-    // Séquence : deux collectes peuvent se chevaucher (auto-refresh + clic,
-    // ou changement rapide de filtre) ; seule la plus récente doit
-    // s'appliquer, sinon un résultat ancien écrase le nouveau.
-    const seq = ++collecteSeq.current;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await invoke<CollecteResult>("get_critical_events", {
-        limit: Number(overLimite ?? limite),
-        inclureAvertissements: overAvert ?? inclureAvert,
-      });
-      if (collecteSeq.current !== seq) return;
-      setEvents(result.events);
-      setAvertissements(result.avertissements);
-      // L'auto-refresh ne doit pas éjecter l'utilisateur de sa lecture :
-      // la sélection est conservée si l'événement est toujours collecté.
-      if (selected) {
-        const toujours = result.events.find(
-          (e) =>
-            e.recordId === selected.recordId &&
-            e.canal === selected.canal &&
-            e.timestamp === selected.timestamp &&
-            e.provider === selected.provider &&
-            e.eventId === selected.eventId,
-        );
-        if (toujours) setSelected(toujours);
-        else {
-          setSelected(null);
-          setDiagnostic(null);
-        }
-      }
-    } catch (e) {
-      if (collecteSeq.current !== seq) return;
-      setError(String(e));
-      // Cohérence de l'écran d'erreur : la table est vidée, le panneau
-      // détail et les bandeaux ne doivent pas montrer un état fantôme.
-      setEvents([]);
-      setAvertissements([]);
-      setSelected(null);
-      setDiagnostic(null);
-    } finally {
-      if (collecteSeq.current === seq) setLoading(false);
-    }
-  }
-
-  async function selectionner(e: CriticalEvent) {
-    // Séquence : évite qu'un diagnostic obsolète écrase celui d'un
-    // événement sélectionné plus récemment (clics rapides).
-    const seq = ++diagSeq.current;
-    setSelected(e);
-    setDiagnostic(null);
-    setDiagLoading(true);
-    try {
-      const d = await invoke<Diagnostic>("get_diagnostic", { event: e });
-      if (diagSeq.current === seq) setDiagnostic(d);
-    } catch {
-      if (diagSeq.current === seq) setDiagnostic({ event: e, fix: null });
-    } finally {
-      if (diagSeq.current === seq) setDiagLoading(false);
-    }
-  }
-
-  async function executerCommande(cmd: CommandeFix) {
-    const id = nextId.current++;
-    const time = new Date().toLocaleTimeString("fr-FR");
-    setTerminalOuvert(true);
-    setTerminal((t) => [
-      ...t,
-      { id, label: cmd.label, commande: cmd.commande, result: null, error: null, running: true, time },
-    ]);
-    setRunningCmd(cleCommande(cmd));
-    try {
-      const res = await invoke<CommandResult>("run_diagnostic_command", {
-        commande: cmd.commande,
-        timeoutSecs: cmd.timeoutSecs ?? null,
-      });
-      setTerminal((t) =>
-        t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
-      );
-    } catch (err) {
-      setTerminal((t) =>
-        t.map((e) =>
-          e.id === id ? { ...e, error: String(err), running: false } : e,
-        ),
-      );
-    } finally {
-      setRunningCmd(null);
-    }
-  }
-
-  function demanderExecution(cmd: CommandeFix) {
-    if (cmd.confirme) {
-      setConfirmCmd(cmd);
-    } else {
-      executerCommande(cmd);
-    }
-  }
 
   async function ouvrirMiseAJour() {
     setMajOuverte(true);
@@ -356,38 +218,14 @@ export default function App() {
     );
   }
 
-  async function executerMajApps(ids: string[]) {
+  function executerMajApps(ids: string[]) {
     setMajOuverte(false);
-    const id = nextId.current++;
-    const time = new Date().toLocaleTimeString("fr-FR");
-    setTerminalOuvert(true);
-    setTerminal((t) => [
-      ...t,
-      {
-        id,
-        label: MAJ_APPS.label,
-        commande: `${MAJ_APPS.commande} — ${ids.length} paquet(s)`,
-        result: null,
-        error: null,
-        running: true,
-        time,
-      },
-    ]);
-    setRunningCmd(MAJ_APPS.commande);
-    try {
-      const res = await invoke<CommandResult>("update_applications", { ids });
-      setTerminal((t) =>
-        t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
-      );
-    } catch (err) {
-      setTerminal((t) =>
-        t.map((e) =>
-          e.id === id ? { ...e, error: String(err), running: false } : e,
-        ),
-      );
-    } finally {
-      setRunningCmd(null);
-    }
+    lancerTacheTerminal(
+      MAJ_APPS.label,
+      `${MAJ_APPS.commande} — ${ids.length} paquet(s)`,
+      MAJ_APPS.commande,
+      () => invoke<CommandResult>("update_applications", { ids }),
+    );
   }
 
   async function chargerWu() {
@@ -425,43 +263,17 @@ export default function App() {
     );
   }
 
-  async function executerWuInstall(ids: string[]) {
+  function executerWuInstall(ids: string[]) {
     setMajOuverte(false);
-    const id = nextId.current++;
-    const time = new Date().toLocaleTimeString("fr-FR");
-    setTerminalOuvert(true);
-    setTerminal((t) => [
-      ...t,
-      {
-        id,
-        label: "Mises à jour Windows",
-        commande: `Installation de ${ids.length} mise(s) à jour Windows via l'agent Windows Update`,
-        result: null,
-        error: null,
-        running: true,
-        time,
-      },
-    ]);
-    setRunningCmd("windows-update");
-    try {
-      const res = await invoke<CommandResult>("install_windows_updates", {
-        updateIds: ids,
-      });
-      setTerminal((t) =>
-        t.map((e) => (e.id === id ? { ...e, result: res, running: false } : e)),
-      );
-    } catch (err) {
-      setTerminal((t) =>
-        t.map((e) =>
-          e.id === id ? { ...e, error: String(err), running: false } : e,
-        ),
-      );
-    } finally {
-      setRunningCmd(null);
-      // Rafraîchit la liste en arrière-plan : les mises à jour installées
-      // disparaissent, celles en attente de redémarrage restent listées.
-      chargerWu();
-    }
+    // Rafraîchit la liste en arrière-plan après l'installation : les mises
+    // à jour installées disparaissent, celles en attente de redémarrage
+    // restent listées.
+    lancerTacheTerminal(
+      "Mises à jour Windows",
+      `Installation de ${ids.length} mise(s) à jour Windows via l'agent Windows Update`,
+      "windows-update",
+      () => invoke<CommandResult>("install_windows_updates", { updateIds: ids }),
+    ).finally(() => chargerWu());
   }
 
   async function relancerAdmin() {
@@ -497,43 +309,7 @@ export default function App() {
     }
   }
 
-  // Navigation clavier entre les lignes (Flèche haut/bas).
-  function naviguerClavier(e: React.KeyboardEvent) {
-    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    if (filtres.length === 0) return;
-    e.preventDefault();
-    const idx = selected ? filtres.findIndex((ev) => ev === selected) : -1;
-    const suivant =
-      e.key === "ArrowDown"
-        ? Math.min(filtres.length - 1, idx + 1)
-        : Math.max(0, idx - 1);
-    selectionner(filtres[suivant]);
-  }
-
-  // Sur écran étroit, la sélection d'une ligne fait défiler jusqu'au
-  // panneau détail (sinon l'utilisateur ne voit pas qu'il s'est ouvert).
-  useEffect(() => {
-    if (!selected) return;
-    if (window.matchMedia("(max-width: 900px)").matches) {
-      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
-
-  const canauxDisponibles = useMemo(
-    () => ["Tous", ...Array.from(new Set(events.map((e) => e.canal)))],
-    [events],
-  );
-
-  // Si le canal filtré n'existe plus dans la nouvelle collecte (ex. Security
-  // collecté une fois en administrateur puis application relancée non
-  // élevée), le filtre ne correspondrait plus à rien : retour à « Tous ».
-  useEffect(() => {
-    if (canal !== "Tous" && !canauxDisponibles.includes(canal)) {
-      setCanal("Tous");
-    }
-  }, [canauxDisponibles, canal]);
-
+  // Plan d'action persistant (localStorage) : étapes cochées par problème.
   function toggleEtapePlan(cle: string) {
     const n = { ...planAction, [cle]: !planAction[cle] };
     setPlanAction(n);
@@ -590,48 +366,28 @@ export default function App() {
     setTimeout(() => setRapportCopie(false), 2000);
   }
 
-  const filtres = useMemo(() => {
-    const q = recherche.trim().toLowerCase();
-    const now = Date.now();
-    const fenetres: Record<string, number> = {
-      "1": 3600_000,
-      "24": 24 * 3600_000,
-      "168": 7 * 24 * 3600_000,
-    };
-    const fenetre = fenetres[depuis];
-    const liste = events.filter((e) => {
-      if (canal !== "Tous" && e.canal !== canal) return false;
-      if (severite !== "Toutes" && e.severity !== severite) return false;
-      if (fenetre) {
-        const t = new Date(e.timestamp).getTime();
-        if (!Number.isNaN(t) && now - t > fenetre) return false;
-      }
-      if (
-        q &&
-        !e.provider.toLowerCase().includes(q) &&
-        !String(e.eventId).includes(q) &&
-        !e.messageRaw.toLowerCase().includes(q)
-      )
-        return false;
-      return true;
-    });
-    const dir = sortDir === "asc" ? 1 : -1;
-    return liste.sort((a, b) => {
-      const va = a[sortKey];
-      const vb = b[sortKey];
-      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
-      return String(va).localeCompare(String(vb), "fr") * dir;
-    });
-  }, [events, canal, severite, recherche, sortKey, sortDir, depuis]);
-
-  function trier(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir(key === "timestamp" || key === "eventId" ? "desc" : "asc");
-    }
+  // Navigation clavier entre les lignes (Flèche haut/bas).
+  function naviguerClavier(e: React.KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    if (filtres.length === 0) return;
+    e.preventDefault();
+    const idx = selected ? filtres.findIndex((ev) => ev === selected) : -1;
+    const suivant =
+      e.key === "ArrowDown"
+        ? Math.min(filtres.length - 1, idx + 1)
+        : Math.max(0, idx - 1);
+    selectionner(filtres[suivant]);
   }
+
+  // Sur écran étroit, la sélection d'une ligne fait défiler jusqu'au
+  // panneau détail (sinon l'utilisateur ne voit pas qu'il s'est ouvert).
+  useEffect(() => {
+    if (!selected) return;
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
 
   const nbCritiques = filtres.filter((e) => e.level === 1).length;
   const nbErreurs = filtres.filter((e) => e.level === 2).length;
@@ -703,7 +459,7 @@ export default function App() {
             )}
             <button
               className="btn small btn-ghost"
-              onClick={() => setTheme((t) => (t === "sombre" ? "clair" : "sombre"))}
+              onClick={basculerTheme}
               title="Basculer le thème clair/sombre"
               aria-label="Basculer le thème"
             >

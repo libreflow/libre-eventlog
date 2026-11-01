@@ -26,17 +26,19 @@
   --text-lg: 1.12rem;
   --text-xl: 1.3rem;
 
-  /* Alphas sémantiques (surchargeables par le thème clair) */
-  --danger-soft: var(--danger-soft);
+  /* Alphas sémantiques (surchargés par le thème clair) — valeurs réelles :
+     une définition self-référentielle (var(--x) dans --x) est une référence
+     circulaire invalide et casserait toutes les règles qui l'utilisent. */
+  --danger-soft: rgba(255, 93, 87, 0.12);
   --danger-border: rgba(255, 93, 87, 0.32);
-  --warn-soft: var(--warn-soft);
-  --warn-border: var(--warn-border);
+  --warn-soft: rgba(255, 178, 36, 0.12);
+  --warn-border: rgba(255, 178, 36, 0.3);
   --ok-soft: rgba(46, 207, 107, 0.12);
   --ok-border: rgba(46, 207, 107, 0.35);
   --accent-border: rgba(91, 140, 255, 0.32);
-  --accent-2: var(--accent-2);
-  --accent-strong: var(--accent-strong);
-  --code-text: var(--code-text);
+  --accent-2: #8b6cf5;
+  --accent-strong: #3d6be0;
+  --code-text: #c3cede;
 }
 
 /* Thème clair : les composants reposent sur les variables ci-dessus,
@@ -627,18 +629,6 @@ tr:focus-visible {
   word-break: break-word;
 }
 
-.detail .meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  margin: 0 0 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
 .section {
   margin-bottom: 16px;
 }
@@ -790,7 +780,7 @@ tr:focus-visible {
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   padding: 6px 10px;
-  color: #9ecbff;
+  color: var(--code-text);
   white-space: pre-wrap;
   word-break: break-word;
   user-select: all;
@@ -1462,26 +1452,8 @@ tr:focus-visible {
   }
 }
 
-/* ---------- Scrollbar ---------- */
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--surface-3);
-  border-radius: 999px;
-  border: 2px solid var(--bg);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--border);
-}
+/* ---------- Scrollbar : voir le bloc unique « Barres de défilement »
+   plus bas (l'ancien doublet ici entrait en conflit avec lui-même) ------- */
 
 @media (prefers-reduced-motion: reduce) {
   *,
